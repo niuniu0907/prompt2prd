@@ -1,0 +1,94 @@
+{
+  "project": {
+    "id": "11111111-1111-4111-8111-111111111111",
+    "name": "宠物寄养平台",
+    "language": "zh-CN",
+    "stage": "CLARIFYING",
+    "completeness": 40
+  },
+  "requirements": [
+    {
+      "id": "22222222-2222-4222-8222-222222222222",
+      "projectId": "11111111-1111-4111-8111-111111111111",
+      "type": "PRODUCT_GOAL",
+      "title": "产品目标",
+      "content": "为宠物主人提供寄养服务",
+      "status": "CONFIRMED",
+      "sourceType": "INITIAL_INPUT",
+      "sourceId": null,
+      "locked": true,
+      "metadata": {},
+      "createdAt": "2026-07-17T12:00:00Z",
+      "updatedAt": "2026-07-17T12:00:00Z"
+    }
+  ],
+  "questions": [
+    {
+      "id": "33333333-3333-4333-8333-333333333333",
+      "projectId": "11111111-1111-4111-8111-111111111111",
+      "batchId": "44444444-4444-4444-8444-444444444444",
+      "text": "寄养方支持哪些角色？",
+      "reason": "角色会影响审核和权限",
+      "dimension": "ROLES_PERMISSIONS",
+      "targetField": "roles.providerType",
+      "semanticKey": "provider-type",
+      "inputType": "SINGLE_SELECT",
+      "options": [
+        {
+          "id": "55555555-5555-4555-8555-555555555555",
+          "label": "仅宠物店",
+          "impact": "需要商家资质审核",
+          "recommended": true
+        }
+      ],
+      "priority": 4.4,
+      "status": "PENDING",
+      "createdAt": "2026-07-17T12:01:00Z",
+      "updatedAt": "2026-07-17T12:01:00Z"
+    }
+  ],
+  "answers": [
+    {
+      "id": "66666666-6666-4666-8666-666666666666",
+      "projectId": "11111111-1111-4111-8111-111111111111",
+      "questionId": "33333333-3333-4333-8333-333333333333",
+      "selectedOptionIds": [],
+      "customAnswer": null,
+      "note": null,
+      "skipped": true,
+      "createdAt": "2026-07-17T12:02:00Z",
+      "updatedAt": "2026-07-17T12:02:00Z"
+    }
+  ],
+  "conflicts": [
+    {
+      "id": "77777777-7777-4777-8777-777777777777",
+      "projectId": "11111111-1111-4111-8111-111111111111",
+      "leftRequirementId": "22222222-2222-4222-8222-222222222222",
+      "rightRequirementId": null,
+      "leftContent": "仅支持宠物店",
+      "rightContent": "支持个人寄养方",
+      "dimension": "ROLES_PERMISSIONS",
+      "impact": "影响准入与审核流程",
+      "core": true,
+      "status": "OPEN",
+      "resolution": null,
+      "createdAt": "2026-07-17T12:03:00Z",
+      "updatedAt": "2026-07-17T12:03:00Z",
+      "resolvedAt": null
+    }
+  ],
+  "completeness": {
+    "total": 40,
+    "dimensions": [
+      {
+        "dimension": "PRODUCT_SCOPE",
+        "applicable": true,
+        "score": 100,
+        "reasons": ["1 confirmed item"]
+      }
+    ],
+    "pendingCount": 1,
+    "hasCoreConflict": true
+  }
+}

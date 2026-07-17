@@ -1,0 +1,19 @@
+package com.prompt2prd.analysis.domain;
+
+public enum RequirementType {
+    PRODUCT_GOAL,
+    ROLE,
+    FEATURE,
+    USER_STORY,
+    BUSINESS_RULE,
+    EXCEPTION_SCENARIO,
+    TECHNICAL_CONSTRAINT,
+    DATA_MODEL,
+    ACCEPTANCE_CRITERION,
+    PAGE,
+    API,
+    IMPLEMENTATION_PHASE,
+    CODING_AGENT_CONSTRAINT,
+    ASSUMPTION,
+    MISSING_INFORMATION
+}
