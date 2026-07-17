@@ -1,0 +1,46 @@
+# ====== OS & Editor ======
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+*~
+
+# IDE
+.idea/
+*.iml
+.vscode/
+*.sublime-workspace
+*.sublime-project
+.codex/
+.agents/
+
+# ====== Java & Maven ======
+target/
+!.mvn/wrapper/maven-wrapper.jar
+*.class
+*.jar
+*.war
+*.nar
+*.ear
+
+# ====== Node.js / Frontend ======
+node_modules/
+dist/
+.env
+.env.local
+.env.*.local
+*.tsbuildinfo
+
+# ====== Playwright ======
+.playwright-cli/
+output/
+
+# ====== Project ======
+memory-bank/
+docs/
+
+# ====== Logs & Temp ======
+logs/
+*.log
+*.tmp
+.cache/
