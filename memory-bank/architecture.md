@@ -1,6 +1,6 @@
 # Prompt2PRD Architecture
 
-> 当前状态：架构已确认，阶段一至阶段四已完成；创建、初始分析、多轮问答、需求交互、编辑和版本恢复已形成稳定的本地结构化需求闭环。产品事实以 `memory-bank/design-doc.md` 为准，实施顺序以 `memory-bank/implementation-plan.md` 为准。
+> 当前状态：架构已确认，阶段一至阶段六已完成，阶段七步骤 39～41 已完成；PRD 固定定义、草稿判定、分章节模型流和 SSE 接口已经建立，前端编辑与本地保存从步骤 42 开始。产品事实以 `memory-bank/design-doc.md` 为准，实施顺序以 `memory-bank/implementation-plan.md` 为准。
 
 ## 交付形态
 
@@ -51,7 +51,7 @@
 
 - IndexedDB 是项目、需求、问答、冲突、版本、流程图和 PRD 的唯一持久化位置。
 - `features/projects/types.ts`、`features/requirements/types.ts` 和 `features/prd/types.ts` 定义当前持久化领域契约；项目与需求工厂在对象入库前校验 UUID、UTC ISO-8601 时间、枚举值和锁定规则。
-- `db/appDatabase.ts` 使用 Dexie 声明数据库版本 1；对象仓库固定为 `project`、`requirement_item`、`clarification_question`、`clarification_answer`、`requirement_conflict`、`requirement_version`、`requirement_change`、`prd_section` 和 `app_setting`。
+- `db/appDatabase.ts` 使用 Dexie Schema v2；在 v1 的九个对象仓库基础上新增 `flowchart`，升级时保留既有项目数据。当前对象仓库为 `project`、`requirement_item`、`clarification_question`、`clarification_answer`、`requirement_conflict`、`requirement_version`、`requirement_change`、`flowchart`、`prd_section` 和 `app_setting`。
 - 项目关联仓库使用 `projectId` 及状态、类型、批次、版本或章节键的复合索引，为后续多项目隔离查询和事务操作提供边界。
 - `app_setting` 只保存非敏感应用状态：首次上传隐私确认及按项目保存的完整度维度快照；Schema 不包含 API Key、Authorization、凭据、密钥或 Token 仓库与字段。
 - 文件上传隐私确认固定使用 `app_setting.key = uploadPrivacyNoticeAccepted`，只保存布尔确认值和 UTC 更新时间；文件预览与分块期间不向后端发送内容。
@@ -59,8 +59,8 @@
 - `applySuggestedName()` 为后续首次分析返回名称预留确定性写入边界：空建议保留临时名称，`userRenamed = true` 时拒绝迟到的模型命名，只有尚未手动改名的项目会更新时间和建议名称。
 - `listSummaries()` 在只读事务中返回按更新时间倒序的项目及待确认数；待确认数严格等于该项目 `PENDING` 需求项与 `PENDING` 澄清问题之和。
 - 重命名和生命周期变更使用项目表事务；普通删除只写 `status = DELETED` 与 `deletedAt`，不会清理关联数据，恢复会回到 `ACTIVE` 并清除归档和删除时间。
-- 项目复制在一个跨仓库事务中生成新的项目、需求、问题批次、问题选项、答案、冲突、版本、变更和 PRD 章节 UUID，并重映射当前记录和版本快照内的引用；副本固定回到活动状态，与原项目相互独立。
-- 永久删除只允许回收站项目，并在一个事务中按明确 `projectId` 清理七类关联记录及项目本身；不会提供批量清空回收站，也不会修改 `app_setting` 或其他项目。
+- 项目复制在一个跨仓库事务中生成新的项目、需求、问题批次、问题选项、答案、冲突、版本、变更、流程图和 PRD 章节 UUID，并重映射当前记录和版本快照内的引用；副本固定回到活动状态，与原项目相互独立。
+- 永久删除只允许回收站项目，并在一个事务中按明确 `projectId` 清理八类关联记录及项目本身；不会提供批量清空回收站，也不会修改 `app_setting` 或其他项目。
 - Vitest 使用 `fake-indexeddb` 为每个测试创建独立数据库，已验证首次打开、关闭后重开、版本号、Repository 事务行为及项目首页操作调用链。
 - AI 候选补丁由后端完成校验、确定性合并、冲突检测和完整度计算；后端不保存项目。
 - 用户确认、锁定、冲突解决和手动编辑由前端确定性处理并写入 IndexedDB。
@@ -68,11 +68,11 @@
 - ID 使用 UUID，持久化时间使用 UTC ISO-8601；版本保存完整快照和字段级摘要，MVP 不自动清理。
 - `db/repositories/requirementRepository.ts` 提供需求项的按 ID 读取、按项目列表、无版本单条更新和事务性批量保存。`save()` 在单个 Dexie 事务中完成：替换全部需求项、捕获项目/需求/问题/答案/冲突完整快照、创建版本摘要记录和字段级变更记录；任何写入失败都会回滚整个事务，不留部分数据。
 - `updateRequirement()` 只写入 `requirement_item` 表且不创建版本，用于编辑过程中的草稿保存；连续多次调用不会生成历史版本，版本仅在显式调用 `save()` 时创建。
-- `db/repositories/versionRepository.ts` 提供按项目倒序列出版本、按 ID 读取版本、读取版本及关联变更，以及恢复到指定历史版本。`restore()` 在单个事务中先保存当前完整状态为 RESTORE 类型版本，再将目标快照的项目/需求/问题/答案/冲突写回各表，最后创建恢复版本记录；恢复失败时当前状态不受影响。
+- `db/repositories/versionRepository.ts` 提供按项目倒序列出版本、按 ID 读取版本、读取版本及关联变更，以及恢复到指定历史版本。`restore()` 在单个事务中先保存当前完整状态为 RESTORE 类型版本，再将目标快照的项目/需求/问题/答案/冲突/流程图写回各表，最后创建恢复版本记录；旧版快照缺少 `flowcharts` 时按空数组兼容，恢复失败时当前状态不受影响。
 - `ClarificationRepository.submitBatch()` 在一个事务中校验问题归属和选项归属，写入答案并更新问题状态；`[projectId+questionId]` 保证重复提交更新原答案 ID 而非追加重复答案。
 - `RequirementInteractionRepository` 是本地冲突、假设和锁定的确定性写边界；每次有效变化都与项目完整快照、版本摘要和字段变更记录在同一事务中提交。只有 `CONFIRMED` 内容可锁定，所有编辑入口都检查锁定状态。
 - `RequirementRepository.commitManualEdit()` 将人工编辑转为 `CONFIRMED/USER_EDIT`，保存受影响的未来产物标识，并通过前端镜像的十维固定权重算法更新项目完整度和 `analysisCompleteness:<projectId>` 快照。
-- 版本恢复当前只覆盖已经实现的项目、需求、问题、答案和冲突；恢复操作同步校准项目完整度记录，不提前引用流程图或 PRD 持久化边界。
+- 流程图生成或确认替换时，`FlowchartRepository` 将图记录、项目阶段、完整快照版本和字段变更放在同一个事务中；版本恢复同步恢复流程图并校准项目完整度记录，PRD 仍等待后续持久化边界实现。
 
 ## 分析领域与应用边界
 
@@ -84,6 +84,32 @@
 - `AnalysisContextBuilder` 只向后续分析器提供项目摘要、当前需求、锁定需求、最新一轮问答、信息缺口、项目语言和输出 Schema；即使输入长历史，也不会把旧轮次正文拼入模型上下文。
 - `RequirementAnalyzer` 通过 `ModelGateway.generateStructured()` 获取完整 `AnalysisModelOutput`，先执行 Bean Validation、枚举和状态来源约束，再转换为候选补丁与问题；正式状态仍由 `RequirementStateMerger`、`QuestionSelector` 和 `CompletenessCalculator` 决定，模型不能直接创建 `CONFIRMED` 内容。
 - `AnalysisOrchestrator` 把一次分析组织为 Reactor `Flux<StreamEvent>`，发送开始、进度、领域增量与单一终态；空闲 5 秒发送进度心跳，订阅取消会触发 `ModelCancellationSignal`。`AnalysisController` 的两个 POST SSE 入口共享相同编排边界，并在模型调用前执行额度策略。
+
+## 架构推荐与确认边界
+
+- `architecture/api/TechnicalConstraintsRequest` 收集已掌握技术、自定义技术、目标终端、团队规模、用户量、关键能力、数据敏感度、部署、预算、周期和维护能力；除项目 UUID 外允许部分提交，所有未回答关键字段通过 `pendingFields` 原样返回，不由后端虚构默认答案。
+- `ArchitectureRecommender` 使用确定性模板和七维 1～5 分评分生成三个可比较候选；候选固定包含前端、后端、存储、鉴权、文件、AI、部署、测试、职责、优缺点、限制和未选择原因。Vue/Java/Spring Boot、个人维护、单体 Docker 样例会优先推荐 Vue + Spring Boot，同时保留全栈 TypeScript 备选。
+- `POST /api/architecture/recommend` 是无状态 JSON 接口，只校验约束并返回候选与待确认字段；后端不保存项目或替用户确认架构，也不消耗模型 Key。
+- `TechnicalConstraintsForm.vue` 支持完整或部分约束、自定义技术和敏感数据选择；`ArchitectureComparison.vue` 展示全部技术职责和七个评分维度，允许接受推荐、选择备选或基于任一候选手动修改。
+- 架构候选复用现有 `requirement_item` 仓库，以 `TECHNICAL_CONSTRAINT/PENDING` 和 `metadata.kind = ARCHITECTURE_CANDIDATE` 保存草稿，不新增 IndexedDB 对象仓库。未选择候选不会计入完整度或待确认数。
+- `ArchitectureRepository.confirm()` 在单个 Dexie 事务中撤销旧主架构、写入唯一 `TECHNICAL_CONSTRAINT/CONFIRMED` 主架构、更新项目阶段与完整度快照，并创建完整版本和字段变更记录；切换确认可由既有版本恢复边界追踪。
+- 每次本地确认返回统一形状的 `architecture_confirmed` 事件，携带 UUID 请求 ID、事件 ID 1、架构 ID 和 UTC 时间；后续 PRD 生成只应读取当前唯一确认项，其他候选保持备选草稿。
+
+## 流程图生成与持久化边界
+
+- `POST /api/generation/flowchart` 通过唯一 `ModelGateway.generateStructured()` 边界生成主流程与异常流程；模型输入只包含 `CONFIRMED` 需求，没有确认事实时不发起模型调用并返回待补充提示。
+- 异常流程必须引用已确认且类型为 `EXCEPTION_SCENARIO` 的需求 ID；无已确认异常事实时不接受模型补写的责任规则。主图和每张异常图独立转换为成功或失败结果，单图失败不会丢弃其他有效图。
+- `FlowchartView.vue` 支持全部生成、单图重新生成、严格 Mermaid 渲染、查看与复制源码；每张返回图先通过 `mermaid.parse()` 独立校验，已存在稳定键的图只有在新结果有效且用户确认后才替换。
+- `FlowchartRepository` 使用稳定图键保存主流程和异常流程；批量生成只提交校验通过的图，保留失败兄弟图的错误信息。项目复制、永久删除、版本快照与版本恢复均已覆盖 `flowchart` 仓库。
+- 流程图路由使用真实 `FlowchartView`，工作台右侧辅助面板在该宽画布页面默认收起。
+
+## PRD 定义、生成与流式边界
+
+- `PrdDefinition` 固定设计文档要求的 17 个有序章节，并为需求、用户故事、业务规则、接口、页面、验收和实施阶段提供确定性编号前缀；追溯检查要求每项核心功能至少关联一个用户故事、业务规则和验收条件。确定性指令只使用 `MUST`、`SHOULD` 和 `MUST NOT`。
+- `PrdGenerator.plan()` 只把 `CONFIRMED` 需求和唯一 `metadata.kind = ARCHITECTURE_CANDIDATE` 的确认架构送入章节提示词。完整度低于 80、没有或存在多个确认主架构、存在未解决核心冲突、或调用方仍提供缺失项时，整份计划固定为 `DRAFT` 并列出原因；生成过程不修改输入需求状态。
+- 每个章节通过 `ModelGateway.streamText()` 独立生成。`PrdStreamOrchestrator` 顺序发送 `section_started`、有序 `section_delta`、`section_completed` 或 `section_failed`；单章节失败不丢弃已完成章节，也不阻止后续章节，总任务只产生一个完成、失败或取消终态。
+- `POST /api/generation/prd` 生成全部 17 章并按一次完整 PRD 操作执行额度策略；`POST /api/generation/prd/sections/{sectionId}` 只生成一个稳定章节键并仅执行频率与真实上游调用预算检查。连接取消会向共享模型取消信号传播。
+- 后端继续无状态，不保存 PRD 或反向修改项目。前端目前只同步了章节键、指令等级和追溯链接类型；章节编辑、预览、IndexedDB 自动保存和版本恢复属于步骤 42，不能视为已完成。
 
 ## AI 与流式边界
 

@@ -4,8 +4,11 @@ const weights: Record<string, number> = { PRODUCT_SCOPE:10, ROLES_PERMISSIONS:8,
 const typeDimensions: Partial<Record<RequirementType, string>> = { PRODUCT_GOAL:'PRODUCT_SCOPE', ROLE:'ROLES_PERMISSIONS', USER_STORY:'CORE_FLOW', FEATURE:'FEATURES', BUSINESS_RULE:'BUSINESS_RULES', EXCEPTION_SCENARIO:'EXCEPTIONS', DATA_MODEL:'DATA_MODEL', TECHNICAL_CONSTRAINT:'ARCHITECTURE_CONSTRAINTS', PAGE:'PAGES_APIS', API:'PAGES_APIS', ACCEPTANCE_CRITERION:'ACCEPTANCE' }
 
 export function calculateCompleteness(requirements: RequirementItem[], questions: ClarificationQuestion[], conflicts: RequirementConflict[]): CompletenessScore {
+  const effectiveRequirements = requirements.filter(item =>
+    item.metadata.kind !== 'ARCHITECTURE_CANDIDATE' || item.status === 'CONFIRMED',
+  )
   const dimensions: CompletenessDimension[] = Object.keys(weights).map(dimension => {
-    const items = requirements.filter(item => dimensionOf(item) === dimension)
+    const items = effectiveRequirements.filter(item => dimensionOf(item) === dimension)
     const unanswered = questions.filter(question => question.dimension === dimension && question.status !== 'ANSWERED').length
     const denominator = items.length + unanswered
     const confirmed = items.filter(item => item.status === 'CONFIRMED').length
@@ -16,7 +19,7 @@ export function calculateCompleteness(requirements: RequirementItem[], questions
     return { dimension, applicable: true, score, reasons: [`${confirmed} confirmed item(s)`, `${inferred} inferred item(s)`, `${unanswered} unanswered question(s)`] }
   })
   const total = Math.round(dimensions.reduce((sum, item) => sum + item.score * weights[item.dimension]!, 0) / 100)
-  return { total, dimensions, pendingCount: requirements.filter(item => item.status === 'PENDING' || item.status === 'CONFLICTED').length + questions.filter(item => item.status !== 'ANSWERED').length, hasCoreConflict: conflicts.some(item => item.core && item.status === 'OPEN') }
+  return { total, dimensions, pendingCount: effectiveRequirements.filter(item => item.status === 'PENDING' || item.status === 'CONFLICTED').length + questions.filter(item => item.status !== 'ANSWERED').length, hasCoreConflict: conflicts.some(item => item.core && item.status === 'OPEN') }
 }
 
 function dimensionOf(item: RequirementItem) {

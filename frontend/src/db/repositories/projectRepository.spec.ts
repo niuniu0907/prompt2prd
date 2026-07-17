@@ -4,6 +4,7 @@ import Dexie from 'dexie'
 import { afterEach, describe, expect, it } from 'vitest'
 
 import type { PrdSection } from '@/features/prd/types'
+import type { FlowchartRecord } from '@/features/flowchart/types'
 import { createProject, type Project } from '@/features/projects/types'
 import {
   createRequirementItem,
@@ -122,7 +123,7 @@ async function seedProjectGraph(database: AppDatabase, project: Project) {
   const section: PrdSection = {
     id: uuid(109),
     projectId: project.id,
-    sectionKey: 'overview',
+    sectionKey: 'product-context',
     title: '项目概述',
     content: '本地项目副本测试',
     order: 1,
@@ -131,6 +132,11 @@ async function seedProjectGraph(database: AppDatabase, project: Project) {
     errorCode: null,
     createdAt: baseTime,
     updatedAt: baseTime,
+  }
+  const flowchart: FlowchartRecord = {
+    id: uuid(110), projectId: project.id, key: 'main', type: 'MAIN', title: '主流程',
+    mermaid: 'flowchart TD\nA-->B', status: 'VALID', sourceRequirementIds: [requirement.id],
+    createdAt: baseTime, updatedAt: baseTime,
   }
 
   await database.transaction(
@@ -143,6 +149,7 @@ async function seedProjectGraph(database: AppDatabase, project: Project) {
       database.requirement_version,
       database.requirement_change,
       database.prd_section,
+      database.flowchart,
     ],
     async () => {
       await database.requirement_item.add(requirement)
@@ -152,10 +159,13 @@ async function seedProjectGraph(database: AppDatabase, project: Project) {
       await database.requirement_version.add(version)
       await database.requirement_change.add(change)
       await database.prd_section.add(section)
+      await database.flowchart.add(flowchart)
     },
   )
 
-  return { requirement, question, answer, conflict, version, change, section }
+  version.snapshot.flowcharts = [flowchart]
+  await database.requirement_version.put(version)
+  return { requirement, question, answer, conflict, version, change, section, flowchart }
 }
 
 afterEach(async () => {
@@ -329,7 +339,7 @@ describe('ProjectRepository', () => {
       deletedAt: null,
     })
 
-    const [requirements, questions, answers, conflicts, versions, changes, sections] =
+    const [requirements, questions, answers, conflicts, versions, changes, sections, flowcharts] =
       await Promise.all([
         database.requirement_item.where('projectId').equals(copy.id).toArray(),
         database.clarification_question.where('projectId').equals(copy.id).toArray(),
@@ -338,10 +348,11 @@ describe('ProjectRepository', () => {
         database.requirement_version.where('projectId').equals(copy.id).toArray(),
         database.requirement_change.where('projectId').equals(copy.id).toArray(),
         database.prd_section.where('projectId').equals(copy.id).toArray(),
+        database.flowchart.where('projectId').equals(copy.id).toArray(),
       ])
 
-    expect([requirements, questions, answers, conflicts, versions, changes, sections].map((rows) => rows.length)).toEqual(
-      [1, 1, 1, 1, 1, 1, 1],
+    expect([requirements, questions, answers, conflicts, versions, changes, sections, flowcharts].map((rows) => rows.length)).toEqual(
+      [1, 1, 1, 1, 1, 1, 1, 1],
     )
     expect(requirements[0]!.id).not.toBe(source.requirement.id)
     expect(questions[0]!.id).not.toBe(source.question.id)
@@ -353,6 +364,9 @@ describe('ProjectRepository', () => {
     expect(changes[0]!.requirementId).toBe(requirements[0]!.id)
     expect(versions[0]!.snapshot.project.id).toBe(copy.id)
     expect(versions[0]!.snapshot.requirements[0]!.id).toBe(requirements[0]!.id)
+    expect(flowcharts[0]!.id).not.toBe(source.flowchart.id)
+    expect(flowcharts[0]!.sourceRequirementIds).toEqual([requirements[0]!.id])
+    expect(versions[0]!.snapshot.flowcharts?.[0]?.id).toBe(flowcharts[0]!.id)
 
     await repository.rename(copy.id, '副本已修改', '2026-07-17T09:10:00.000Z')
     await database.requirement_item.update(requirements[0]!.id, { content: '副本独立内容' })
@@ -399,8 +413,9 @@ describe('ProjectRepository', () => {
       database.requirement_version.where('projectId').equals(target.id).count(),
       database.requirement_change.where('projectId').equals(target.id).count(),
       database.prd_section.where('projectId').equals(target.id).count(),
+      database.flowchart.where('projectId').equals(target.id).count(),
     ])
-    expect(targetCounts).toEqual([0, 0, 0, 0, 0, 0, 0])
+    expect(targetCounts).toEqual([0, 0, 0, 0, 0, 0, 0, 0])
     await expect(repository.getById(survivor.id)).resolves.toEqual(survivor)
     expect(await database.requirement_item.where('projectId').equals(survivor.id).count()).toBe(1)
     await expect(database.app_setting.get('uploadPrivacyNoticeAccepted')).resolves.toMatchObject({

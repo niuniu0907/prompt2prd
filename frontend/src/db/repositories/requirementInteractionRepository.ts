@@ -62,7 +62,7 @@ export class RequirementInteractionRepository {
   }
 
   private tables() {
-    return [this.database.project, this.database.requirement_item, this.database.clarification_question, this.database.clarification_answer, this.database.requirement_conflict, this.database.requirement_version, this.database.requirement_change]
+    return [this.database.project, this.database.requirement_item, this.database.clarification_question, this.database.clarification_answer, this.database.requirement_conflict, this.database.requirement_version, this.database.requirement_change, this.database.flowchart]
   }
 
   private async requireRequirement(id: string) {
@@ -74,13 +74,14 @@ export class RequirementInteractionRepository {
   private async recordVersion(projectId: string, summary: string, changeType: RequirementChangeType, requirementId: string | null, field: string, oldValue: unknown, newValue: unknown, now: string) {
     const project = await this.database.project.get(projectId)
     if (!project) throw new Error(`Project ${projectId} not found`)
-    const [requirements, questions, answers, conflicts] = await Promise.all([
+    const [requirements, questions, answers, conflicts, flowcharts] = await Promise.all([
       this.database.requirement_item.where('projectId').equals(projectId).toArray(),
       this.database.clarification_question.where('projectId').equals(projectId).toArray(),
       this.database.clarification_answer.where('projectId').equals(projectId).toArray(),
       this.database.requirement_conflict.where('projectId').equals(projectId).toArray(),
+      this.database.flowchart.where('projectId').equals(projectId).toArray(),
     ])
-    const snapshot: RequirementStateSnapshot = { project: structuredClone(project), requirements: structuredClone(requirements), questions: structuredClone(questions), answers: structuredClone(answers), conflicts: structuredClone(conflicts) }
+    const snapshot: RequirementStateSnapshot = { project: structuredClone(project), requirements: structuredClone(requirements), questions: structuredClone(questions), answers: structuredClone(answers), conflicts: structuredClone(conflicts), flowcharts: structuredClone(flowcharts) }
     const versionId = this.createId(); const changeId = this.createId()
     assertUuid(versionId, 'version id'); assertUuid(changeId, 'change id')
     await this.database.requirement_version.add({ id: versionId, projectId, changeType, summary, snapshot, createdAt: now })

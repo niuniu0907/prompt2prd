@@ -5,7 +5,7 @@ import { afterEach, describe, expect, it } from 'vitest'
 
 import { createProject } from '@/features/projects/types'
 import { createAppDatabase, DATABASE_VERSION } from './appDatabase'
-import { DATABASE_STORES, PERSISTED_STORE_NAMES } from './schema'
+import { DATABASE_STORES, DATABASE_STORES_V1, PERSISTED_STORE_NAMES } from './schema'
 
 const databaseNames = new Set<string>()
 
@@ -23,7 +23,7 @@ afterEach(async () => {
 })
 
 describe('AppDatabase', () => {
-  it('creates version 1 with the nine documented object stores and indexes', async () => {
+  it('creates version 2 with the ten documented object stores and indexes', async () => {
     const database = createTestDatabase()
     await database.open()
 
@@ -41,8 +41,27 @@ describe('AppDatabase', () => {
     expect(database.prd_section.schema.indexes.map((index) => index.name)).toContain(
       '[projectId+sectionKey]',
     )
+    expect(database.flowchart.schema.indexes.map((index) => index.name)).toContain('[projectId+key]')
 
     database.close()
+  })
+
+  it('upgrades a version 1 database without losing existing projects', async () => {
+    const name = `prompt2prd-v1-${crypto.randomUUID()}`
+    databaseNames.add(name)
+    const legacy = new Dexie(name)
+    legacy.version(1).stores(DATABASE_STORES_V1)
+    const project = createProject({ id: '66deeeab-70cf-41af-92a2-24ff466ca1b1', name: '迁移项目', originalPrompt: '验证数据库迁移', now: '2026-07-17T07:00:00.000Z' })
+    await legacy.open()
+    await legacy.table('project').add(project)
+    legacy.close()
+
+    const upgraded = createAppDatabase(name)
+    await upgraded.open()
+    expect(upgraded.verno).toBe(2)
+    await expect(upgraded.project.get(project.id)).resolves.toEqual(project)
+    expect(upgraded.tables.map(table => table.name)).toContain('flowchart')
+    upgraded.close()
   })
 
   it('persists a project after close and reopen', async () => {
@@ -78,6 +97,7 @@ describe('AppDatabase', () => {
       'requirement_version',
       'requirement_change',
       'prd_section',
+      'flowchart',
       'app_setting',
     ])
   })

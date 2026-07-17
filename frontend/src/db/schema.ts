@@ -1,7 +1,7 @@
 import type { UtcIsoDateTime } from '@/features/projects/types'
 
 export const DATABASE_NAME = 'prompt2prd'
-export const DATABASE_VERSION = 1
+export const DATABASE_VERSION = 2
 
 export const PERSISTED_STORE_NAMES = [
   'project',
@@ -12,6 +12,7 @@ export const PERSISTED_STORE_NAMES = [
   'requirement_version',
   'requirement_change',
   'prd_section',
+  'flowchart',
   'app_setting',
 ] as const
 
@@ -25,7 +26,7 @@ export interface AppSettingRecord {
   updatedAt: UtcIsoDateTime
 }
 
-export const DATABASE_STORES: Record<PersistedStoreName, string> = {
+export const DATABASE_STORES_V1 = {
   project: 'id, status, stage, updatedAt, archivedAt, deletedAt',
   requirement_item: 'id, projectId, [projectId+type], [projectId+status], updatedAt',
   clarification_question:
@@ -37,4 +38,9 @@ export const DATABASE_STORES: Record<PersistedStoreName, string> = {
   requirement_change: 'id, projectId, versionId, [projectId+versionId], createdAt',
   prd_section: 'id, projectId, [projectId+sectionKey], [projectId+status], updatedAt',
   app_setting: 'key, updatedAt',
+}
+
+export const DATABASE_STORES: Record<PersistedStoreName, string> = {
+  ...DATABASE_STORES_V1,
+  flowchart: 'id, projectId, [projectId+key], [projectId+type], [projectId+status], updatedAt',
 }

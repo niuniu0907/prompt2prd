@@ -1,5 +1,6 @@
 import type { Project, UtcIsoDateTime, Uuid } from '@/features/projects/types'
 import { assertUtcIsoDateTime, assertUuid } from '@/features/projects/types'
+import type { FlowchartRecord } from '@/features/flowchart/types'
 
 export const REQUIREMENT_STATUSES = [
   'INFERRED',
@@ -146,6 +147,8 @@ export interface RequirementStateSnapshot {
   questions: ClarificationQuestion[]
   answers: ClarificationAnswer[]
   conflicts: RequirementConflict[]
+  /** Optional only for snapshots created before IndexedDB schema version 2. */
+  flowcharts?: FlowchartRecord[]
 }
 
 export interface RequirementVersion {

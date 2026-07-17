@@ -79,6 +79,7 @@ export class VersionRepository {
         this.database.requirement_version,
         this.database.requirement_change,
         this.database.app_setting,
+        this.database.flowchart,
       ],
       async () => {
         const targetVersion = await this.database.requirement_version.get(targetVersionId)
@@ -97,12 +98,13 @@ export class VersionRepository {
           throw new RequirementSaveError(`Project ${projectId} not found`)
         }
 
-        const [currentRequirements, currentQuestions, currentAnswers, currentConflicts] =
+        const [currentRequirements, currentQuestions, currentAnswers, currentConflicts, currentFlowcharts] =
           await Promise.all([
             this.database.requirement_item.where('projectId').equals(projectId).toArray(),
             this.database.clarification_question.where('projectId').equals(projectId).toArray(),
             this.database.clarification_answer.where('projectId').equals(projectId).toArray(),
             this.database.requirement_conflict.where('projectId').equals(projectId).toArray(),
+            this.database.flowchart.where('projectId').equals(projectId).toArray(),
           ])
 
         const preRestoreSnapshot: RequirementStateSnapshot = {
@@ -111,6 +113,7 @@ export class VersionRepository {
           questions: structuredClone(currentQuestions),
           answers: structuredClone(currentAnswers),
           conflicts: structuredClone(currentConflicts),
+          flowcharts: structuredClone(currentFlowcharts),
         }
 
         const preRestoreVersionId = this.createId()
@@ -139,6 +142,7 @@ export class VersionRepository {
 
         // ---- Apply the target snapshot ----
         const snapshot = targetVersion.snapshot
+        const targetFlowcharts = snapshot.flowcharts ?? []
 
         // Restore project fields that were captured in the snapshot
         const restoredProject: Project = {
@@ -201,6 +205,13 @@ export class VersionRepository {
           )
         }
 
+        await this.database.flowchart.where('projectId').equals(projectId).delete()
+        if (targetFlowcharts.length > 0) {
+          await this.database.flowchart.bulkAdd(targetFlowcharts.map((flowchart) => ({
+            ...structuredClone(flowchart), projectId, updatedAt: now,
+          })))
+        }
+
         // ---- Create the restore version record ----
         const restoreVersionId = this.createId()
         assertUuid(restoreVersionId, 'restore version id')
@@ -226,6 +237,9 @@ export class VersionRepository {
             ...structuredClone(c),
             projectId,
             updatedAt: now,
+          })),
+          flowcharts: targetFlowcharts.map((flowchart) => ({
+            ...structuredClone(flowchart), projectId, updatedAt: now,
           })),
         }
 

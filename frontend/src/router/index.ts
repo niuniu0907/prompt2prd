@@ -8,6 +8,8 @@ import ModelSettingsView from '@/views/ModelSettingsView.vue'
 import AnalysisView from '@/features/analysis/AnalysisView.vue'
 import QuestionWizardView from '@/features/analysis/QuestionWizardView.vue'
 import RequirementsView from '@/features/requirements/RequirementsView.vue'
+import ArchitectureView from '@/features/architecture/ArchitectureView.vue'
+import FlowchartView from '@/features/flowchart/FlowchartView.vue'
 
 export function createAppRouter(history: RouterHistory = createWebHistory()) {
   return createRouter({
@@ -57,12 +59,12 @@ export function createAppRouter(history: RouterHistory = createWebHistory()) {
           {
             path: 'architecture',
             name: 'project-architecture',
-            component: ProjectModulePlaceholder,
+            component: ArchitectureView,
           },
           {
             path: 'flowchart',
             name: 'project-flowchart',
-            component: ProjectModulePlaceholder,
+            component: FlowchartView,
           },
           {
             path: 'prd',

@@ -1,6 +1,7 @@
 import Dexie, { type Table } from 'dexie'
 
 import type { PrdSection } from '@/features/prd/types'
+import type { FlowchartRecord } from '@/features/flowchart/types'
 import type { Project } from '@/features/projects/types'
 import type {
   ClarificationAnswer,
@@ -13,6 +14,7 @@ import type {
 import {
   DATABASE_NAME,
   DATABASE_STORES,
+  DATABASE_STORES_V1,
   DATABASE_VERSION,
   type AppSettingRecord,
 } from './schema'
@@ -28,10 +30,12 @@ export class AppDatabase extends Dexie {
   declare requirement_version: Table<RequirementVersion, string>
   declare requirement_change: Table<RequirementChange, string>
   declare prd_section: Table<PrdSection, string>
+  declare flowchart: Table<FlowchartRecord, string>
   declare app_setting: Table<AppSettingRecord, string>
 
   constructor(name = DATABASE_NAME) {
     super(name)
+    this.version(1).stores(DATABASE_STORES_V1)
     this.version(DATABASE_VERSION).stores(DATABASE_STORES)
   }
 }
