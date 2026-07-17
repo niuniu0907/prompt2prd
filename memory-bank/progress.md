@@ -84,6 +84,11 @@
 - `2026-07-17` 步骤 13 严格 TypeScript 检查和 Vite 生产构建成功；`.\mvnw.cmd test` 成功，后端测试 1 个、失败 0、错误 0、跳过 0。
 - `2026-07-17` 步骤 13 `.\mvnw.cmd package` 跳过：与步骤 11-12 相同的 Windows Rolldown 原生二进制文件占用导致 `npm ci` 无法替换文件；前端测试与独立构建均验证通过，不重复记录。
 
+- `2026-07-17` 步骤 14 完成统一 API 错误协议：创建 `ErrorCode` 枚举（8 种错误类别）、`ApiErrorResponse` record（code/message/requestId/timestamp）、`ApiException` 基类与 8 个子类、`RequestIdWebFilter`（UUID 注入响应头与 Reactor Context）、`GlobalExceptionHandler`（统一 JSON 响应、敏感信息脱敏）。
+- `2026-07-17` 步骤 14 WebTestClient 测试覆盖全部 8 个错误类别（参数错误 400、鉴权 502、模型不存在 404、格式不兼容 422、限流 429、服务不可达 502、超时 504、内部错误 500），以及请求 ID 唯一性、时间戳、敏感信息扫描和 fallback 异常不泄露原始消息。
+- `2026-07-17` 步骤 14 完成后运行 `.\mvnw.cmd test` 成功：后端测试 14 个、失败 0、错误 0、跳过 0；`npm --prefix frontend run test` 成功：17 个测试文件、123 项测试全部通过。
+- `2026-07-17` 步骤 14 后端模块独立 `package` 成功；根聚合 `package` 因已知 Windows Rolldown 原生二进制文件占用跳过，与步骤 11-13 原因相同。
+
 ## 下一步
 
-执行 `memory-bank/implementation-plan.md` 步骤 14，实现统一 API 错误协议。
+执行 `memory-bank/implementation-plan.md` 步骤 15，定义模型网关边界。
