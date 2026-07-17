@@ -1,6 +1,17 @@
 export type Uuid = string
 export type UtcIsoDateTime = string
 
+export const PROJECT_MODULES = [
+  'overview',
+  'questions',
+  'requirements',
+  'architecture',
+  'flowchart',
+  'prd',
+] as const
+
+export type ProjectModule = (typeof PROJECT_MODULES)[number]
+
 export const PROJECT_STAGES = [
   'CLARIFYING',
   'ARCHITECTURE',

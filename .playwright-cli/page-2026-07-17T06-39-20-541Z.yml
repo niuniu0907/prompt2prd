@@ -1,0 +1,33 @@
+- generic [ref=e3]:
+  - complementary [ref=e4]:
+    - generic "Prompt2PRD" [ref=e5]
+    - generic [ref=e9]:
+      - paragraph [ref=e10]: 工作区
+      - navigation "全局导航" [ref=e11]:
+        - button "全部项目" [ref=e12]
+        - button "已归档" [ref=e17]
+        - button "回收站" [ref=e21]
+        - button "模型设置" [ref=e25]
+    - generic [ref=e32]:
+      - strong [ref=e33]: 本地工作区
+      - generic [ref=e34]: 数据保存在当前浏览器
+  - generic [ref=e36]:
+    - generic [ref=e37]:
+      - generic [ref=e38]:
+        - paragraph [ref=e39]: 项目工作区
+        - heading "全部项目" [level=1] [ref=e40]
+        - paragraph [ref=e41]: 把模糊想法逐步整理成可执行、可验收的产品文档。
+      - button "新建项目" [ref=e42] [cursor=pointer]
+    - main [ref=e45]:
+      - generic [ref=e46]:
+        - generic [ref=e47]:
+          - heading "最近项目" [level=2] [ref=e48]
+          - paragraph [ref=e49]: 最近编辑的需求分析项目会显示在这里。
+        - generic [ref=e50]: 0 个项目
+      - region [ref=e51]:
+        - generic [ref=e57]:
+          - text: 从一句想法开始
+          - heading "还没有项目" [level=3] [ref=e58]
+          - paragraph [ref=e59]: 创建第一个需求项目，Prompt2PRD 会帮助你发现信息缺口，并逐步整理成结构化 PRD。
+        - button "创建第一个项目" [ref=e60] [cursor=pointer]
+        - generic [ref=e61]: 项目数据仅保存在当前浏览器中，清除浏览器数据后将无法恢复。

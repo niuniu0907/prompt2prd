@@ -34,7 +34,7 @@ async function createProject(input: CreateProjectInput) {
   errorMessage.value = ''
   try {
     const project = await repository.create(input)
-    await router.push({ name: 'project-start', params: { projectId: project.id } })
+    await router.push({ name: 'project-overview', params: { projectId: project.id } })
   } catch {
     errorMessage.value = '项目创建失败，本地数据没有保存。请检查浏览器存储权限后重试。'
   } finally {

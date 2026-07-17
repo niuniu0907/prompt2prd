@@ -71,7 +71,7 @@ describe('NewProjectView', () => {
         originalPrompt: '建立一个本地需求分析工具',
       }),
     )
-    expect(router.currentRoute.value.name).toBe('project-start')
+    expect(router.currentRoute.value.name).toBe('project-overview')
     expect(router.currentRoute.value.params.projectId).toBe(project.id)
   })
 
@@ -108,7 +108,7 @@ describe('NewProjectView', () => {
         supplementalPrompt: null,
       }),
     )
-    expect(router.currentRoute.value.name).toBe('project-start')
+    expect(router.currentRoute.value.name).toBe('project-overview')
   })
 
   it('restores the text minimum after a confirmed file is cleared', async () => {
