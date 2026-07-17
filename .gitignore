@@ -141,3 +141,19 @@ dist
 vite.config.js.timestamp-*
 vite.config.ts.timestamp-*
 .vite/
+
+# Maven and packaged build output
+target/
+**/target/
+
+# Browser automation artifacts
+.playwright-cli/
+output/playwright/
+playwright-report/
+test-results/
+
+# Local agent settings
+.claude/
+
+# Local implementation working plans
+docs/superpowers/plans/

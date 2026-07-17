@@ -1,4 +1,0 @@
--------------------------------------------------------------------------------
-Test set: com.prompt2prd.Prompt2PrdApplicationTests
--------------------------------------------------------------------------------
-Tests run: 1, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 0.739 s -- in com.prompt2prd.Prompt2PrdApplicationTests
