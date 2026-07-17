@@ -1,0 +1,29 @@
+- generic [ref=e141]:
+  - complementary [ref=e142]:
+    - generic "Prompt2PRD" [ref=e143]
+    - generic [ref=e147]:
+      - paragraph [ref=e148]: 工作区
+      - navigation "全局导航" [ref=e149]:
+        - button "全部项目" [ref=e150] [cursor=pointer]
+        - button "已归档" [ref=e155] [cursor=pointer]
+        - button "回收站" [ref=e159] [cursor=pointer]
+        - button "模型设置" [disabled] [ref=e163]
+    - generic [ref=e170]:
+      - strong [ref=e171]: 本地工作区
+      - generic [ref=e172]: 数据保存在当前浏览器
+  - main [ref=e174]:
+    - button "← 返回项目列表" [ref=e175] [cursor=pointer]
+    - generic [ref=e176]:
+      - text: 项目已保存
+      - heading "步骤十浏览器验收临时项目-2026071" [level=1] [ref=e177]
+      - paragraph [ref=e178]: 原始需求已安全写入当前浏览器。真实 AI 分析流将在后续分析步骤中接入。
+      - generic [ref=e179]:
+        - generic [ref=e180]:
+          - term [ref=e181]: 当前阶段
+          - definition [ref=e182]: 需求澄清
+        - generic [ref=e183]:
+          - term [ref=e184]: 完整度
+          - definition [ref=e185]: 0%
+        - generic [ref=e186]:
+          - term [ref=e187]: 保存位置
+          - definition [ref=e188]: 浏览器 IndexedDB
