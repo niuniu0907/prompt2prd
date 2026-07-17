@@ -4,6 +4,10 @@ import ProjectHomeView from '@/views/ProjectHomeView.vue'
 import NewProjectView from '@/views/NewProjectView.vue'
 import ProjectWorkspace from '@/layouts/ProjectWorkspace.vue'
 import ProjectModulePlaceholder from '@/views/ProjectModulePlaceholder.vue'
+import ModelSettingsView from '@/views/ModelSettingsView.vue'
+import AnalysisView from '@/features/analysis/AnalysisView.vue'
+import QuestionWizardView from '@/features/analysis/QuestionWizardView.vue'
+import RequirementsView from '@/features/requirements/RequirementsView.vue'
 
 export function createAppRouter(history: RouterHistory = createWebHistory()) {
   return createRouter({
@@ -20,6 +24,11 @@ export function createAppRouter(history: RouterHistory = createWebHistory()) {
         component: NewProjectView,
       },
       {
+        path: '/settings/model',
+        name: 'model-settings',
+        component: ModelSettingsView,
+      },
+      {
         path: '/projects/:projectId',
         component: ProjectWorkspace,
         children: [
@@ -33,17 +42,17 @@ export function createAppRouter(history: RouterHistory = createWebHistory()) {
           {
             path: 'overview',
             name: 'project-overview',
-            component: ProjectModulePlaceholder,
+            component: AnalysisView,
           },
           {
             path: 'questions',
             name: 'project-questions',
-            component: ProjectModulePlaceholder,
+            component: QuestionWizardView,
           },
           {
             path: 'requirements',
             name: 'project-requirements',
-            component: ProjectModulePlaceholder,
+            component: RequirementsView,
           },
           {
             path: 'architecture',

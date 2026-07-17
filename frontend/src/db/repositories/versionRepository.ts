@@ -78,6 +78,7 @@ export class VersionRepository {
         this.database.requirement_conflict,
         this.database.requirement_version,
         this.database.requirement_change,
+        this.database.app_setting,
       ],
       async () => {
         const targetVersion = await this.database.requirement_version.get(targetVersionId)
@@ -146,6 +147,11 @@ export class VersionRepository {
           updatedAt: now,
         }
         await this.database.project.put(restoredProject)
+        await this.database.app_setting.put({
+          key: `analysisCompleteness:${projectId}`,
+          value: { total: restoredProject.completeness, dimensions: [], pendingCount: snapshot.requirements.filter(item => item.status === 'PENDING' || item.status === 'CONFLICTED').length + snapshot.questions.filter(item => item.status !== 'ANSWERED').length, hasCoreConflict: snapshot.conflicts.some(item => item.core && item.status === 'OPEN') },
+          updatedAt: now,
+        })
 
         // Replace all requirement items
         await this.database.requirement_item.where('projectId').equals(projectId).delete()

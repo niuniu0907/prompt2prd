@@ -12,6 +12,7 @@ import type {
 } from '@/features/requirements/types'
 import type { AppDatabase } from '../appDatabase'
 import { appDatabase } from '../appDatabase'
+import { calculateCompleteness } from '@/features/requirements/completeness'
 
 export interface RequirementFieldChange {
   requirementId: string | null
@@ -32,6 +33,12 @@ export interface RequirementSaveInput {
 export interface RequirementSaveResult {
   version: RequirementVersion
   changes: RequirementChange[]
+}
+
+export interface ManualRequirementEdit {
+  title: string
+  content: string
+  affectedArtifacts: string[]
 }
 
 export class RequirementRepository {
@@ -71,6 +78,9 @@ export class RequirementRepository {
       if (!current) {
         throw new RequirementNotFoundError(id)
       }
+      if (current.locked) {
+        throw new Error('Unlock the requirement before editing')
+      }
       const updated: RequirementItem = {
         ...current,
         ...changes,
@@ -80,6 +90,37 @@ export class RequirementRepository {
         updatedAt: now,
       }
       await this.database.requirement_item.put(updated)
+      return updated
+    })
+  }
+
+  async commitManualEdit(id: string, edit: ManualRequirementEdit, now = new Date().toISOString()): Promise<RequirementItem> {
+    assertUuid(id, 'requirement id'); assertUtcIsoDateTime(now, 'manual edit timestamp')
+    const title = edit.title.trim(); const content = edit.content.trim()
+    if (!title || !content) throw new TypeError('requirement title and content must not be blank')
+    return this.database.transaction('rw', [this.database.project, this.database.requirement_item, this.database.clarification_question, this.database.clarification_answer, this.database.requirement_conflict, this.database.requirement_version, this.database.requirement_change, this.database.app_setting], async () => {
+      const current = await this.database.requirement_item.get(id)
+      if (!current) throw new RequirementNotFoundError(id)
+      if (current.locked) throw new Error('Unlock the requirement before editing')
+      const updated: RequirementItem = { ...current, title, content, status: 'CONFIRMED', sourceType: 'USER_EDIT', metadata: { ...current.metadata, affectedArtifacts: [...new Set(edit.affectedArtifacts)] }, updatedAt: now }
+      await this.database.requirement_item.put(updated)
+      const project = await this.database.project.get(current.projectId)
+      if (!project) throw new RequirementSaveError(`Project ${current.projectId} not found`)
+      const [requirements, questions, answers, conflicts] = await Promise.all([
+        this.database.requirement_item.where('projectId').equals(current.projectId).toArray(),
+        this.database.clarification_question.where('projectId').equals(current.projectId).toArray(),
+        this.database.clarification_answer.where('projectId').equals(current.projectId).toArray(),
+        this.database.requirement_conflict.where('projectId').equals(current.projectId).toArray(),
+      ])
+      const completeness = calculateCompleteness(requirements, questions, conflicts)
+      const updatedProject = { ...project, completeness: completeness.total, updatedAt: now }
+      await this.database.project.put(updatedProject)
+      await this.database.app_setting.put({ key: `analysisCompleteness:${current.projectId}`, value: completeness, updatedAt: now })
+      const versionId = this.createId(); const changeId = this.createId()
+      assertUuid(versionId, 'version id'); assertUuid(changeId, 'change id')
+      const snapshot: RequirementStateSnapshot = { project: structuredClone(updatedProject), requirements: structuredClone(requirements), questions: structuredClone(questions), answers: structuredClone(answers), conflicts: structuredClone(conflicts) }
+      await this.database.requirement_version.add({ id: versionId, projectId: current.projectId, changeType: 'UPDATE', summary: `手动编辑：${title}`, snapshot, createdAt: now })
+      await this.database.requirement_change.add({ id: changeId, projectId: current.projectId, versionId, requirementId: id, changeType: 'UPDATE', field: 'manualEdit', oldValue: current, newValue: updated, createdAt: now })
       return updated
     })
   }

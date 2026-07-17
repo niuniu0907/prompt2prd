@@ -1,10 +1,12 @@
 import { flushPromises, mount } from '@vue/test-utils'
+import { createMemoryHistory } from 'vue-router'
 import { describe, expect, it, vi } from 'vitest'
 
 import AppShell from './AppShell.vue'
 import type { ProjectHomeRepository } from '@/db/repositories/projectRepository'
 import ProjectHomeView from '@/views/ProjectHomeView.vue'
 import tokensCss from '@/styles/tokens.css?inline'
+import { createAppRouter } from '@/router'
 
 const requiredTokens = {
   '--color-primary': '#c7eb64',
@@ -40,7 +42,19 @@ describe('AppShell', () => {
     expect(wrapper.findAll('[aria-current="page"]')).toHaveLength(1)
     await wrapper.get('[data-navigation="DELETED"]').trigger('click')
     expect(wrapper.emitted('navigate')).toEqual([['DELETED']])
-    expect(wrapper.get('button[disabled]').text()).toContain('模型设置')
+    expect(wrapper.get('[data-navigation="MODEL_SETTINGS"]').attributes('disabled')).toBeUndefined()
+  })
+
+  it('opens the enabled model settings route', async () => {
+    const router = createAppRouter(createMemoryHistory())
+    await router.push('/')
+    await router.isReady()
+    const wrapper = mount(AppShell, { global: { plugins: [router] } })
+
+    await wrapper.get('[data-navigation="MODEL_SETTINGS"]').trigger('click')
+    await flushPromises()
+
+    expect(router.currentRoute.value.name).toBe('model-settings')
   })
 
   it('uses the documented light-theme tokens and primary-button pairing', () => {

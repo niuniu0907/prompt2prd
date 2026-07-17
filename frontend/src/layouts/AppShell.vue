@@ -1,11 +1,22 @@
 <script setup lang="ts">
+import { inject } from 'vue'
+import { routerKey } from 'vue-router'
+
 import type { ProjectListFilter } from '@/db/repositories/projectRepository'
 
-withDefaults(defineProps<{ activeSection?: ProjectListFilter }>(), {
+export type AppSection = ProjectListFilter | 'MODEL_SETTINGS'
+
+withDefaults(defineProps<{ activeSection?: AppSection }>(), {
   activeSection: 'ACTIVE',
 })
 
 defineEmits<{ navigate: [section: ProjectListFilter] }>()
+
+const router = inject(routerKey, null)
+
+function openModelSettings() {
+  void router?.push({ name: 'model-settings' })
+}
 </script>
 
 <template>
@@ -59,7 +70,13 @@ defineEmits<{ navigate: [section: ProjectListFilter] }>()
             </svg>
             <span>回收站</span>
           </button>
-          <button class="sidebar-nav__item" type="button" disabled aria-disabled="true">
+          <button
+            :class="['sidebar-nav__item', { 'sidebar-nav__item--active': activeSection === 'MODEL_SETTINGS' }]"
+            type="button"
+            data-navigation="MODEL_SETTINGS"
+            :aria-current="activeSection === 'MODEL_SETTINGS' ? 'page' : undefined"
+            @click="openModelSettings"
+          >
             <svg viewBox="0 0 24 24" aria-hidden="true">
               <circle cx="12" cy="12" r="3" />
               <path d="M19.4 15a1.7 1.7 0 0 0 .34 1.88l.06.06-2.86 2.86-.06-.06A1.7 1.7 0 0 0 15 19.4a1.7 1.7 0 0 0-1 .6 1.7 1.7 0 0 0-.4 1.1V21H9.55v-.09A1.7 1.7 0 0 0 8.5 19.4a1.7 1.7 0 0 0-1.88.34l-.06.06-2.86-2.86.06-.06A1.7 1.7 0 0 0 4.1 15a1.7 1.7 0 0 0-.6-1 1.7 1.7 0 0 0-1.1-.4H2.3V9.55h.1A1.7 1.7 0 0 0 4.1 8.5a1.7 1.7 0 0 0-.34-1.88l-.06-.06L6.56 3.7l.06.06A1.7 1.7 0 0 0 8.5 4.1a1.7 1.7 0 0 0 1-.6 1.7 1.7 0 0 0 .4-1.1V2.3h4.05v.1A1.7 1.7 0 0 0 15 4.1a1.7 1.7 0 0 0 1.88-.34l.06-.06 2.86 2.86-.06.06A1.7 1.7 0 0 0 19.4 8.5a1.7 1.7 0 0 0 .6 1 1.7 1.7 0 0 0 1.1.4h.1v4.05h-.1A1.7 1.7 0 0 0 19.4 15Z" />
@@ -200,11 +217,6 @@ defineEmits<{ navigate: [section: ProjectListFilter] }>()
   color: var(--color-text-primary);
   background: var(--color-primary);
   box-shadow: inset 0 0 0 1px rgba(79, 101, 27, 0.09);
-}
-
-.sidebar-nav__item:disabled {
-  color: var(--color-text-muted);
-  cursor: not-allowed;
 }
 
 .sidebar-status {
