@@ -12,7 +12,10 @@ import com.prompt2prd.quota.QuotaOperation;
 import com.prompt2prd.quota.QuotaService;
 import com.prompt2prd.stream.StreamEvent;
 import jakarta.validation.Valid;
+import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.NotEmpty;
 import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
 import org.springframework.http.codec.ServerSentEvent;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -21,7 +24,10 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.server.ServerWebExchange;
 import reactor.core.publisher.Flux;
+import reactor.core.publisher.Mono;
 
+import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
 @RestController
@@ -94,6 +100,27 @@ public final class PrdController {
         });
     }
 
+    @PostMapping("/validate")
+    public Mono<ResponseEntity<PrdValidator.ValidationReport>> validate(
+            @Valid @RequestBody PrdValidateRequest request) {
+        return Mono.fromCallable(() -> {
+            PrdValidator.ValidationReport report = PrdValidator.validate(
+                    request.sections(), request.confirmedArchitectureId());
+            return ResponseEntity.ok(report);
+        });
+    }
+
+    @PostMapping("/analyze-changes")
+    public Mono<ResponseEntity<PrdChangeAnalyzer.PrdChangeReport>> analyzeChanges(
+            @Valid @RequestBody PrdChangeAnalysisRequest request) {
+        return Mono.fromCallable(() -> {
+            PrdChangeAnalyzer.PrdChangeReport report = PrdChangeAnalyzer.analyze(
+                    request.sectionKey(), request.oldContent(), request.newContent(),
+                    request.currentRequirements());
+            return ResponseEntity.ok(report);
+        });
+    }
+
     private ServerSentEvent<StreamEvent> toSse(StreamEvent event) {
         return ServerSentEvent.<StreamEvent>builder(event)
                 .id(Long.toString(event.eventId()))
@@ -109,5 +136,17 @@ public final class PrdController {
         } catch (RuntimeException exception) {
             throw new ApiException.BadRequest("Selected model configuration is invalid");
         }
+    }
+
+    public record PrdValidateRequest(
+            @NotEmpty Map<String, String> sections,
+            String confirmedArchitectureId) {
+    }
+
+    public record PrdChangeAnalysisRequest(
+            @NotBlank String sectionKey,
+            @NotBlank String oldContent,
+            @NotBlank String newContent,
+            @NotEmpty List<com.prompt2prd.analysis.domain.RequirementItem> currentRequirements) {
     }
 }

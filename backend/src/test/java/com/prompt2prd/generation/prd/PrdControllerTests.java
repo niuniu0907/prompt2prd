@@ -75,6 +75,59 @@ class PrdControllerTests {
                 .expectBody().jsonPath("$.code").isEqualTo("BAD_REQUEST");
     }
 
+    @Test
+    void validateReturnsOkForConsistentDocument() {
+        Map<String, String> sections = new java.util.HashMap<>();
+        for (var section : PrdDefinition.sections()) {
+            sections.put(section.key().wireName(),
+                    "REQ-001 核心功能\nUS-001 用户故事\nBR-001 业务规则\nAPI-001 接口\nPAGE-001 页面\nAC-001 验收条件\nPHASE-001 阶段一");
+        }
+        sections.put("acceptance", "AC-001 Given 用户已登录 When 点击按钮 Then 显示成功。");
+        sections.put("architecture", "Vue 3 + Spring Boot 单体架构。");
+        sections.put("implementation-phases", "PHASE-001 基础框架搭建。");
+
+        client.post().uri("/api/generation/prd/validate")
+                .bodyValue(Map.of("sections", sections, "confirmedArchitectureId", "arch-1"))
+                .exchange().expectStatus().isOk()
+                .expectBody().jsonPath("$.valid").isEqualTo(true)
+                .jsonPath("$.errors").isArray()
+                .jsonPath("$.warnings").isArray();
+    }
+
+    @Test
+    void validateRejectsIncompleteSections() {
+        Map<String, String> minimal = new java.util.HashMap<>();
+        minimal.put("coding-agent-guide", "content");
+        client.post().uri("/api/generation/prd/validate")
+                .bodyValue(Map.of("sections", minimal))
+                .exchange().expectStatus().isOk()
+                .expectBody().jsonPath("$.valid").isEqualTo(false);
+    }
+
+    @Test
+    void analyzeChangesReturnsReport() {
+        var requirement = new com.prompt2prd.analysis.domain.RequirementItem(
+                java.util.UUID.randomUUID(),
+                java.util.UUID.fromString("123e4567-e89b-42d3-a456-426614174000"),
+                com.prompt2prd.analysis.domain.RequirementType.BUSINESS_RULE,
+                "退款规则", "退款时限为 24 小时",
+                com.prompt2prd.analysis.domain.RequirementStatus.CONFIRMED,
+                com.prompt2prd.analysis.domain.RequirementSourceType.USER_ANSWER,
+                null, false, Map.of(),
+                java.time.Instant.parse("2026-07-17T00:00:00Z"),
+                java.time.Instant.parse("2026-07-17T00:00:00Z"));
+        client.post().uri("/api/generation/prd/analyze-changes")
+                .bodyValue(Map.of(
+                        "sectionKey", "rules-exceptions",
+                        "oldContent", "退款时限为 24 小时。",
+                        "newContent", "退款时限为 48 小时。",
+                        "currentRequirements", List.of(requirement)))
+                .exchange().expectStatus().isOk()
+                .expectBody().jsonPath("$.syncedChanges").isArray()
+                .jsonPath("$.pendingChanges").isArray()
+                .jsonPath("$.conflictWarnings").isArray();
+    }
+
     private PrdRequest request() {
         return new PrdRequest(PrdTestFixtures.finalState(), List.of(),
                 new PrdModelSettings(ModelConfig.KeySource.USER, PrdModelSettings.Provider.CUSTOM,

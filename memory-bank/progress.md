@@ -142,6 +142,12 @@
 - `2026-07-17` 步骤 41 实现 `POST /api/generation/prd` 与 `POST /api/generation/prd/sections/{sectionId}` SSE 接口。每章依次产生开始、多个有序文本片段和完成/失败事件；单章失败保留兄弟章节，总任务终态唯一，模型取消后不再追加章节内容。完整生成和单章生成分别使用完整 PRD 额度边界与频率边界，并按真实章节数预留上游调用预算。
 - 步骤 39～41 自动化模型测试全部使用假 `ModelGateway`。`2026-07-17` 后端完整回归 138 项全部通过；前端完整回归 40 个测试文件、179 项全部通过；严格 TypeScript 检查和 Vite 生产构建成功。PRD 编辑、预览、IndexedDB 保存与版本恢复尚未实现，将从步骤 42 开始。
 
+- `2026-07-18` 步骤 42 实现 PRD 编辑、预览与保存：`PrdEditor.vue` 支持 Markdown 编辑与 2 秒失焦自动保存，`PrdPreview.vue` 使用 `markdown-it({ html: false })` 安全渲染，`PrdSectionList.vue` 展示 17 个章节的状态（草稿/生成中/已完成/失败）与锁定切换；`PrdView.vue` 组合编辑/预览模式切换、全部生成和单章重新生成，`PrdRepository` 提供初始化、更新、保存、锁定和生成内容写入的 IndexedDB 事务操作。
+- `2026-07-18` 步骤 43 实现章节锁定与重新生成：`PrdRegenerationDialog.vue` 在重新生成前展示覆盖警告并要求显式勾选确认；`PrdRepository.saveBeforeRegeneration()` 在重生成前创建历史版本备份，`replaceAfterRegeneration()` 仅在确认后替换并通过事务记录变更。
+- `2026-07-18` 步骤 44 实现 PRD 修改到需求的同步分析：后端 `PrdChangeAnalyzer` 仅在保存时分析差异，通过提取编号事实和数值变化匹配已确认需求项；唯一匹配可自动同步，多匹配或锁定项分别生成待确认变更或冲突警告。新增 `POST /api/generation/prd/analyze-changes` 接口和前端 `analyzePrdChanges()` 导出。
+- `2026-07-18` 步骤 45 实现一致性校验与 Markdown 导出：后端 `PrdValidator` 验证章节完整性、稳定编号、交叉引用、架构标记、验收格式和实施阶段；新增 `POST /api/generation/prd/validate` 接口。前端 `prdExporter.ts` 合并已完成/草稿章节为 Markdown 文件，清理非法文件名字符并触发浏览器下载。
+- 步骤 42～45 自动化模型测试全部使用假 `ModelGateway`。`2026-07-18` 后端完整回归 152 项全部通过（新增 14 项）；前端完整回归 44 个测试文件、206 项全部通过（新增 27 项）；严格 TypeScript 检查和 Vite 生产构建成功。阶段七（AI-ready PRD）已全部完成。
+
 ## 下一步
 
-执行 `memory-bank/implementation-plan.md` 步骤 42，实现 PRD 编辑、预览与保存。
+执行 `memory-bank/implementation-plan.md` 步骤 46，贯通停止与迟到结果保护。

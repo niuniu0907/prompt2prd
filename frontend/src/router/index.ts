@@ -10,6 +10,7 @@ import QuestionWizardView from '@/features/analysis/QuestionWizardView.vue'
 import RequirementsView from '@/features/requirements/RequirementsView.vue'
 import ArchitectureView from '@/features/architecture/ArchitectureView.vue'
 import FlowchartView from '@/features/flowchart/FlowchartView.vue'
+import PrdView from '@/features/prd/PrdView.vue'
 
 export function createAppRouter(history: RouterHistory = createWebHistory()) {
   return createRouter({
@@ -69,7 +70,7 @@ export function createAppRouter(history: RouterHistory = createWebHistory()) {
           {
             path: 'prd',
             name: 'project-prd',
-            component: ProjectModulePlaceholder,
+            component: PrdView,
           },
         ],
       },

@@ -1,6 +1,6 @@
 # Prompt2PRD Architecture
 
-> 当前状态：架构已确认，阶段一至阶段六已完成，阶段七步骤 39～41 已完成；PRD 固定定义、草稿判定、分章节模型流和 SSE 接口已经建立，前端编辑与本地保存从步骤 42 开始。产品事实以 `memory-bank/design-doc.md` 为准，实施顺序以 `memory-bank/implementation-plan.md` 为准。
+> 当前状态：架构已确认，阶段一至阶段七全部完成。PRD 编辑、预览、IndexedDB 保存、章节锁定/重新生成、需求同步分析和一致性校验/导出均已实现。下一步执行步骤 46（贯通停止与迟到结果保护）。产品事实以 `memory-bank/design-doc.md` 为准，实施顺序以 `memory-bank/implementation-plan.md` 为准。
 
 ## 交付形态
 
@@ -103,13 +103,18 @@
 - `FlowchartRepository` 使用稳定图键保存主流程和异常流程；批量生成只提交校验通过的图，保留失败兄弟图的错误信息。项目复制、永久删除、版本快照与版本恢复均已覆盖 `flowchart` 仓库。
 - 流程图路由使用真实 `FlowchartView`，工作台右侧辅助面板在该宽画布页面默认收起。
 
-## PRD 定义、生成与流式边界
+## PRD 定义、生成、编辑与流式边界
 
 - `PrdDefinition` 固定设计文档要求的 17 个有序章节，并为需求、用户故事、业务规则、接口、页面、验收和实施阶段提供确定性编号前缀；追溯检查要求每项核心功能至少关联一个用户故事、业务规则和验收条件。确定性指令只使用 `MUST`、`SHOULD` 和 `MUST NOT`。
 - `PrdGenerator.plan()` 只把 `CONFIRMED` 需求和唯一 `metadata.kind = ARCHITECTURE_CANDIDATE` 的确认架构送入章节提示词。完整度低于 80、没有或存在多个确认主架构、存在未解决核心冲突、或调用方仍提供缺失项时，整份计划固定为 `DRAFT` 并列出原因；生成过程不修改输入需求状态。
 - 每个章节通过 `ModelGateway.streamText()` 独立生成。`PrdStreamOrchestrator` 顺序发送 `section_started`、有序 `section_delta`、`section_completed` 或 `section_failed`；单章节失败不丢弃已完成章节，也不阻止后续章节，总任务只产生一个完成、失败或取消终态。
 - `POST /api/generation/prd` 生成全部 17 章并按一次完整 PRD 操作执行额度策略；`POST /api/generation/prd/sections/{sectionId}` 只生成一个稳定章节键并仅执行频率与真实上游调用预算检查。连接取消会向共享模型取消信号传播。
-- 后端继续无状态，不保存 PRD 或反向修改项目。前端目前只同步了章节键、指令等级和追溯链接类型；章节编辑、预览、IndexedDB 自动保存和版本恢复属于步骤 42，不能视为已完成。
+- 前端 `PrdView.vue` 组合章节列表、编辑/预览切换和全部/单章生成；`PrdEditor.vue` 支持 Markdown 编辑和 2 秒失焦自动保存；`PrdPreview.vue` 使用 `markdown-it({ html: false })` 安全渲染，禁止原始 HTML。
+- `PrdRepository` 通过 IndexedDB 持久化 17 个章节，支持初始化、内容更新、状态变更、锁定切换、显式保存和生成内容写入；保存操作在事务中同步创建版本记录并推进项目阶段。锁定章节的内容更新和重新生成均被拒绝。
+- `PrdRegenerationDialog.vue` 在重新生成前展示旧版备份提示和人工内容覆盖警告，要求用户显式勾选确认；`PrdRepository.saveBeforeRegeneration()` 在重生成前创建历史版本以便恢复。
+- 后端 `PrdChangeAnalyzer` 在保存或退出编辑模式时分析片段差异，提取编号事实和数值变化匹配已确认需求；唯一匹配自动同步，多匹配或锁定目标生成待确认变更或冲突警告。对应前端导出 `analyzePrdChanges()`。
+- 后端 `PrdValidator` 验证 17 章节完整性、稳定编号、交叉引用、架构标记、验收 Given/When/Then 和实施阶段编号；备选架构混入最终文档时产生警告。对应前端 `exportPrdMarkdown()` 合并已完成/草稿章节为 Markdown 文件，`sanitizeFileName()` 清理非法文件名字符，`downloadPrdFile()` 触发浏览器下载。
+- 后端继续无状态，不保存 PRD 或反向修改项目。前端 PRD 路由已从占位页切换到 `PrdView`，阶段七全部完成。
 
 ## AI 与流式边界
 
