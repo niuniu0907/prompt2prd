@@ -1,13 +1,13 @@
 package com.prompt2prd.common.api;
 
 import java.util.List;
-import java.util.Set;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.server.ServerWebInputException;
 import org.springframework.web.server.ServerWebExchange;
 import reactor.core.publisher.Mono;
 
@@ -23,29 +23,41 @@ public class GlobalExceptionHandler {
 
     private static final Logger log = LoggerFactory.getLogger(GlobalExceptionHandler.class);
 
-    /** Sensitive tokens to strip from error messages before returning them to the client. */
-    private static final Set<String> SENSITIVE_HEADERS = Set.of(
-            "authorization", "x-api-key", "api-key", "openai-api-key",
-            "x-deepseek-key", "x-qwen-key", "proxy-authorization"
-    );
-
     @ExceptionHandler(ApiException.class)
     public Mono<ResponseEntity<ApiErrorResponse>> handleApiException(
             ApiException ex, ServerWebExchange exchange) {
         String requestId = extractRequestId(exchange);
         logError(requestId, ex);
-        ApiErrorResponse body = ApiErrorResponse.of(ex.getErrorCode(), sanitize(ex.getMessage()), requestId);
+        ApiErrorResponse body = ApiErrorResponse.of(
+                ex.getErrorCode(), ex.getErrorCode().getClientMessage(), requestId);
         return Mono.just(ResponseEntity.status(ex.getHttpStatus()).body(body));
+    }
+
+    @ExceptionHandler(ServerWebInputException.class)
+    public Mono<ResponseEntity<ApiErrorResponse>> handleInvalidRequest(
+            ServerWebInputException ex, ServerWebExchange exchange) {
+        String requestId = extractRequestId(exchange);
+        log.warn("requestId={} code={} status={} exceptionType={}",
+                requestId,
+                ErrorCode.BAD_REQUEST,
+                ex.getStatusCode().value(),
+                ex.getClass().getSimpleName());
+        ApiErrorResponse body = ApiErrorResponse.of(
+                ErrorCode.BAD_REQUEST,
+                ErrorCode.BAD_REQUEST.getClientMessage(),
+                requestId);
+        return Mono.just(ResponseEntity.badRequest().body(body));
     }
 
     @ExceptionHandler(Exception.class)
     public Mono<ResponseEntity<ApiErrorResponse>> handleFallback(
             Exception ex, ServerWebExchange exchange) {
         String requestId = extractRequestId(exchange);
-        log.error("requestId={} — unhandled internal error", requestId, ex);
+        log.error("requestId={} code={} status=500 exceptionType={}",
+                requestId, ErrorCode.INTERNAL_ERROR, ex.getClass().getSimpleName());
         ApiErrorResponse body = ApiErrorResponse.of(
                 ErrorCode.INTERNAL_ERROR,
-                "An unexpected internal error occurred. Please try again or contact support.",
+                ErrorCode.INTERNAL_ERROR.getClientMessage(),
                 requestId);
         return Mono.just(ResponseEntity.status(500).body(body));
     }
@@ -62,24 +74,17 @@ public class GlobalExceptionHandler {
 
     private void logError(String requestId, ApiException ex) {
         if (ex instanceof ApiException.Internal) {
-            log.error("requestId={} code={} status={} — {}",
-                    requestId, ex.getErrorCode(), ex.getHttpStatus().value(), ex.getMessage(), ex);
+            log.error("requestId={} code={} status={} exceptionType={}",
+                    requestId,
+                    ex.getErrorCode(),
+                    ex.getHttpStatus().value(),
+                    ex.getClass().getSimpleName());
         } else {
-            log.warn("requestId={} code={} status={} — {}",
-                    requestId, ex.getErrorCode(), ex.getHttpStatus().value(), ex.getMessage());
+            log.warn("requestId={} code={} status={} exceptionType={}",
+                    requestId,
+                    ex.getErrorCode(),
+                    ex.getHttpStatus().value(),
+                    ex.getClass().getSimpleName());
         }
-    }
-
-    static String sanitize(String message) {
-        if (message == null) {
-            return "An error occurred.";
-        }
-        String sanitized = message;
-        for (String header : SENSITIVE_HEADERS) {
-            sanitized = sanitized.replaceAll("(?i)" + header + "[\\s]*[:=][\\s]*\\S+", header + ": ***");
-        }
-        // Remove bearer tokens
-        sanitized = sanitized.replaceAll("(?i)bearer\\s+[\\w\\-\\.]+", "bearer ***");
-        return sanitized;
     }
 }

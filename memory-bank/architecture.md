@@ -1,6 +1,6 @@
 # Prompt2PRD Architecture
 
-> 当前状态：架构已确认，阶段一已完成，阶段二的前端领域类型、IndexedDB Schema v1、项目 Repository、真实项目首页、文字新建项目流程、Markdown/TXT 上传、预览、隐私确认、文本分块、项目工作台导航、事务保存与版本记录已建立。产品事实以 `memory-bank/design-doc.md` 为准，实施顺序以 `memory-bank/implementation-plan.md` 为准。
+> 当前状态：架构已确认，阶段一和阶段二已完成；阶段三已完成统一 API 错误协议与模型网关边界。前端领域类型、IndexedDB Schema v1、项目 Repository、真实项目首页、文字/文件创建流程、项目工作台导航、事务保存与版本记录均已建立。产品事实以 `memory-bank/design-doc.md` 为准，实施顺序以 `memory-bank/implementation-plan.md` 为准。
 
 ## 交付形态
 
@@ -70,6 +70,15 @@
 
 ## AI 与流式边界
 
+- `model/application/ModelGateway` 是业务模块调用模型的唯一生产边界，统一提供完整结构化结果 `Mono`、有序文本块 `Flux` 和连接测试 `Mono`；接口及其请求/结果类型不暴露 Spring AI 或厂商客户端类型。
+- `ModelCallContext` 统一携带 UUID 请求 ID、运行时模型端点和 `ModelCancellationSignal`；端点对象的字符串表示固定隐藏 API Key 和参数值，用户 Key 仍只允许存在于单次请求内存中。
+- 结构化请求通过 `responseType` 与 `outputSchema` 声明完整结果契约，`StructuredModelResult` 不表达半截 JSON；文本流以从 1 开始的序号和请求 ID 返回有序片段。
+- `ModelGatewayException.Kind` 区分不可达、鉴权、模型不存在、限流、格式不兼容、超时、取消和内部错误，供后续适配器与 API 错误协议确定性映射。
+- 测试侧 `FakeModelGateway` 可确定性模拟成功、格式错误、延迟和取消，不访问真实模型；架构测试阻止 `analysis`、`architecture` 和 `generation` 包依赖模型适配器或厂商客户端。
+- 后端统一错误响应固定为 `code/message/requestId/timestamp`；八类错误使用稳定错误码和类别级安全提示，不能把异常原文、上游响应、完整提示词或凭据复制到响应。
+- `RequestIdWebFilter` 为每个请求生成 UUID，同时写入 `X-Request-Id` 和 Reactor Context；错误响应体的 `requestId` 必须与响应头一致。
+- `ServerWebInputException`（包含请求体校验失败和畸形 JSON）统一映射为 `BAD_REQUEST`；未识别异常统一映射为 `INTERNAL_ERROR`。
+- 错误日志只记录请求 ID、错误码、HTTP 状态和异常类型，不记录异常消息或堆栈中的潜在敏感正文。
 - 业务模块只依赖 `ModelGateway`；自动测试使用假网关，不调用真实模型。
 - 结构化模型结果完整聚合并校验后才进入状态合并器；PRD 文本使用真实流式输出。
 - SSE 使用 `requestId` 和递增 `eventId` 幂等处理；未知事件记录后忽略，已知非法事件终止任务。

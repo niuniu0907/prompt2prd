@@ -5,6 +5,8 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 
+import jakarta.validation.Valid;
+import jakarta.validation.constraints.NotBlank;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
@@ -13,6 +15,8 @@ import org.springframework.boot.test.web.server.LocalServerPort;
 import org.springframework.context.annotation.Import;
 import org.springframework.test.web.reactive.server.WebTestClient;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 import reactor.core.publisher.Mono;
@@ -43,6 +47,35 @@ class ApiErrorProtocolTests {
         ApiErrorResponse body = triggerAndExpect("/test-error/bad-request", 400, ErrorCode.BAD_REQUEST);
         assertThat(body.message()).isNotEmpty();
         assertThat(body.requestId()).isNotEmpty();
+    }
+
+    @Test
+    void beanValidationFailureShouldUseBadRequestProtocol() {
+        ApiErrorResponse body = webClient.post().uri("/test-error/validate")
+                .bodyValue(new ValidationRequest(""))
+                .exchange()
+                .expectStatus().isBadRequest()
+                .expectBody(ApiErrorResponse.class)
+                .returnResult().getResponseBody();
+
+        assertThat(body).isNotNull();
+        assertThat(body.code()).isEqualTo(ErrorCode.BAD_REQUEST);
+        assertThat(body.message()).isEqualTo(ErrorCode.BAD_REQUEST.getClientMessage());
+    }
+
+    @Test
+    void malformedJsonShouldUseBadRequestProtocol() {
+        ApiErrorResponse body = webClient.post().uri("/test-error/validate")
+                .header("Content-Type", "application/json")
+                .bodyValue("{not-json")
+                .exchange()
+                .expectStatus().isBadRequest()
+                .expectBody(ApiErrorResponse.class)
+                .returnResult().getResponseBody();
+
+        assertThat(body).isNotNull();
+        assertThat(body.code()).isEqualTo(ErrorCode.BAD_REQUEST);
+        assertThat(body.message()).isEqualTo(ErrorCode.BAD_REQUEST.getClientMessage());
     }
 
     @Test
@@ -105,7 +138,8 @@ class ApiErrorProtocolTests {
         List<String> paths = List.of(
                 "/test-error/unauthorized",
                 "/test-error/internal-error",
-                "/test-error/service-unavailable"
+                "/test-error/service-unavailable",
+                "/test-error/sensitive-message"
         );
         for (String path : paths) {
             byte[] raw = webClient.get().uri(path)
@@ -116,6 +150,16 @@ class ApiErrorProtocolTests {
                     .as("Response for %s must not contain secret tokens", path)
                     .doesNotContain("sk-", "Bearer ", "Authorization", "api-key", "secret");
         }
+    }
+
+    @Test
+    void apiExceptionsShouldExposeOnlyTheCategorySafeMessage() {
+        ApiErrorResponse body = triggerAndExpect(
+                "/test-error/sensitive-message", 502, ErrorCode.UNAUTHORIZED);
+
+        assertThat(body.message()).isEqualTo(ErrorCode.UNAUTHORIZED.getClientMessage());
+        assertThat(body.message()).doesNotContain(
+                "sk-live-sensitive-value", "完整提示词", "Authorization");
     }
 
     @Test
@@ -162,6 +206,8 @@ class ApiErrorProtocolTests {
                     assertThat(body).isNotNull();
                     assertThat(body.code()).isEqualTo(expectedCode);
                     assertThat(body.requestId()).isNotBlank();
+                    assertThat(result.getResponseHeaders().getFirst("X-Request-Id"))
+                            .isEqualTo(body.requestId());
                     assertThat(body.timestamp()).isNotNull();
                 })
                 .returnResult().getResponseBody();
@@ -217,5 +263,19 @@ class ApiErrorProtocolTests {
         Mono<String> fallback() {
             throw new RuntimeException("This raw exception message should NOT appear in the response body.");
         }
+
+        @GetMapping("/sensitive-message")
+        Mono<String> sensitiveMessage() {
+            throw new ApiException.Unauthorized(
+                    "Authorization: Bearer sk-live-sensitive-value; 完整提示词：请生成内部项目");
+        }
+
+        @PostMapping("/validate")
+        Mono<String> validate(@Valid @RequestBody ValidationRequest request) {
+            return Mono.just(request.name());
+        }
+    }
+
+    record ValidationRequest(@NotBlank String name) {
     }
 }
