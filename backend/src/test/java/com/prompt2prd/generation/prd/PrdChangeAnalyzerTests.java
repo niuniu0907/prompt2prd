@@ -21,7 +21,7 @@ class PrdChangeAnalyzerTests {
     @Test
     void noChangeWhenContentIdentical() {
         var report = PrdChangeAnalyzer.analyze(
-                "rules-exceptions", "退款时限为 24 小时。", "退款时限为 24 小时。",
+                "business-rules", "退款时限为 24 小时。", "退款时限为 24 小时。",
                 List.of(refundRule(false)));
 
         assertThat(report.hasChanges()).isFalse();
@@ -31,7 +31,7 @@ class PrdChangeAnalyzerTests {
     @Test
     void syncedWhenUniqueMatchFound() {
         var report = PrdChangeAnalyzer.analyze(
-                "rules-exceptions",
+                "business-rules",
                 "退款时限为 24 小时。",
                 "退款时限为 48 小时。",
                 List.of(refundRule(false)));
@@ -44,7 +44,7 @@ class PrdChangeAnalyzerTests {
     @Test
     void conflictWhenTargetIsLocked() {
         var report = PrdChangeAnalyzer.analyze(
-                "rules-exceptions",
+                "business-rules",
                 "退款时限为 24 小时。",
                 "退款时限为 48 小时。",
                 List.of(refundRule(true)));
@@ -57,7 +57,7 @@ class PrdChangeAnalyzerTests {
     @Test
     void pendingWhenNoMatchFound() {
         var report = PrdChangeAnalyzer.analyze(
-                "rules-exceptions",
+                "business-rules",
                 "- 旧规则：登录尝试次数上限为 3 次",
                 "- 新规则：登录尝试次数上限为 5 次",
                 List.of(refundRule(false)));
@@ -71,7 +71,7 @@ class PrdChangeAnalyzerTests {
         RequirementItem ruleA = item("退款规则", "用户可在 24 小时内申请退款", RequirementStatus.CONFIRMED, false);
         RequirementItem ruleB = item("退款补充", "退款申请需在 24 小时内提交", RequirementStatus.CONFIRMED, false);
         var report = PrdChangeAnalyzer.analyze(
-                "rules-exceptions",
+                "business-rules",
                 "退款时限为 24 小时。",
                 "退款时限为 48 小时。",
                 List.of(ruleA, ruleB));

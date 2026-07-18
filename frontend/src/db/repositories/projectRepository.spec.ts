@@ -123,8 +123,8 @@ async function seedProjectGraph(database: AppDatabase, project: Project) {
   const section: PrdSection = {
     id: uuid(109),
     projectId: project.id,
-    sectionKey: 'product-context',
-    title: '项目概述',
+    sectionKey: 'product-background-goals',
+    title: '产品背景与目标',
     content: '本地项目副本测试',
     order: 1,
     status: 'COMPLETED',

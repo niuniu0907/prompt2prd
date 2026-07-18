@@ -1,7 +1,5 @@
 import { mount } from '@vue/test-utils'
 import { describe, expect, it } from 'vitest'
-import type { ProjectStage } from '@/features/projects/types'
-import { PROJECT_STAGES } from '@/features/projects/types'
 import ProjectHeader from './ProjectHeader.vue'
 
 describe('ProjectHeader', () => {
@@ -13,37 +11,18 @@ describe('ProjectHeader', () => {
     expect(wrapper.text()).toContain('宠物寄养平台')
   })
 
-  it('shows completeness as a percentage', () => {
+  it('shows requirement completeness and status counts instead of page progress', () => {
     const wrapper = mount(ProjectHeader, {
       props: { projectName: 'Test', completeness: 72 },
     })
 
-    expect(wrapper.get('[data-testid="header-completeness"]').text()).toContain('72%')
-  })
-
-  it('rounds completeness to a whole number', () => {
-    const wrapper = mount(ProjectHeader, {
-      props: { projectName: 'Test', completeness: 67.8 },
-    })
-
-    expect(wrapper.get('[data-testid="header-completeness"]').text()).toContain('68%')
-  })
-
-  it('displays the correct Chinese label for each project stage', () => {
-    const stageMap: Record<ProjectStage, string> = {
-      CLARIFYING: '需求澄清',
-      ARCHITECTURE: '架构建议',
-      FLOWCHART: '流程图',
-      PRD: 'PRD 生成',
-      COMPLETED: '已完成',
-    }
-
-    for (const stage of PROJECT_STAGES) {
-      const wrapper = mount(ProjectHeader, {
-        props: { projectName: 'Test', stage },
-      })
-      expect(wrapper.text()).toContain(stageMap[stage])
-    }
+    expect(wrapper.text()).toContain('需求完整度：72%')
+    expect(wrapper.text()).toContain('已确认')
+    expect(wrapper.text()).toContain('待确认')
+    expect(wrapper.text()).toContain('待分析')
+    expect(wrapper.text()).toContain('冲突')
+    expect(wrapper.find('[data-testid="header-completeness"]').exists()).toBe(false)
+    expect(wrapper.text()).not.toContain('总体进度')
   })
 
   it('shows the model name when provided', () => {
@@ -59,10 +38,7 @@ describe('ProjectHeader', () => {
       props: { projectName: 'Test' },
     })
 
-    // Only stage and completeness badges should appear
-    const badges = wrapper.findAll('span')
-    const modelBadge = badges.filter((b) => b.text() !== '' && !b.classes().some((c) => c.includes('stage') || c.includes('completeness') || c.includes('save')))
-    expect(modelBadge.every((b) => b.text() !== 'DeepSeek V3')).toBe(true)
+    expect(wrapper.text()).not.toContain('DeepSeek V3')
   })
 
   it('shows save status text when provided', () => {
@@ -100,18 +76,18 @@ describe('ProjectHeader', () => {
     expect(wrapper.emitted('generatePrd')).toHaveLength(1)
   })
 
-  it('disables PRD generation with a concrete reason when prerequisites are missing', () => {
+  it('disables PRD generation before initial analysis is available', () => {
     const wrapper = mount(ProjectHeader, {
       props: {
         projectName: 'Test',
         canGeneratePrd: false,
-        generateDisabledReason: '还需确认3条需求后才能生成PRD',
+        generateHint: '首次 AI 解析完成后即可生成 PRD 草稿。',
       },
     })
 
     const button = wrapper.get('[data-testid="header-generate-prd"]')
     expect(button.attributes('disabled')).toBeDefined()
-    expect(wrapper.get('[data-testid="header-generate-hint"]').text()).toBe('还需确认3条需求后才能生成PRD')
+    expect(wrapper.get('[data-testid="header-generate-hint"]').text()).toBe('首次 AI 解析完成后即可生成 PRD 草稿。')
   })
 
   it('uses dark text on the primary button background', () => {

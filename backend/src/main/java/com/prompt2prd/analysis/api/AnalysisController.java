@@ -64,8 +64,22 @@ public class AnalysisController {
                         answer.questionId(), answer.batchId(), answer.question(),
                         answer.answer(), answer.answeredAt()))
                 .toList();
-        return stream(request.state(), "Analyze the latest clarification answers", answers,
+        return stream(request.state(), answerAnalysisInput(request), answers,
                 request.missingInformation(), request.modelSettings(), exchange);
+    }
+
+    private String answerAnalysisInput(AnalysisAnswersRequest request) {
+        StringBuilder input = new StringBuilder("Continue requirement clarification.");
+        if (request.originalInput() != null) {
+            input.append("\nOriginal project idea:\n").append(request.originalInput());
+        }
+        if (!request.answers().isEmpty()) {
+            input.append("\nUse the full historical question and answer list from the context.");
+        }
+        if (request.supplementalInput() != null) {
+            input.append("\nThis round supplemental idea:\n").append(request.supplementalInput());
+        }
+        return input.toString();
     }
 
     private Flux<ServerSentEvent<StreamEvent>> stream(

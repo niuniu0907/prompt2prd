@@ -5,9 +5,9 @@ import { useRoute } from 'vue-router'
 const route = useRoute()
 
 const moduleLabels: Record<string, string> = {
-  'project-overview': '需求概览',
-  'project-questions': '问题向导',
-  'project-requirements': '需求卡片',
+  'project-overview': '项目概览',
+  'project-questions': '需求澄清',
+  'project-requirements': '需求确认',
   'project-architecture': '架构建议',
   'project-flowchart': '流程图',
   'project-prd': 'PRD',

@@ -354,7 +354,7 @@ public final class RequirementAnalyzer implements AnalysisEngine {
                 + "\nCurrent input=" + currentInput
                 + "\nCurrent requirements=" + context.currentRequirements()
                 + "\nLocked requirements=" + context.lockedRequirements()
-                + "\nRecent answers=" + context.recentAnswers()
+                + "\nAnswer history=" + context.answerHistory()
                 + "\nMissing information=" + context.missingInformation()
                 + "\nPRD coverage checklist=\n" + PrdCoverageArea.promptChecklist()
                 + "\nOutput schema=" + context.outputSchema();

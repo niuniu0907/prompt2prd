@@ -43,7 +43,7 @@ public final class PrdStreamOrchestrator {
                             Map.of("reason", "MODEL_CANCELLED", "completedStages", List.copyOf(completed)))))
                     .onErrorResume(error -> Mono.just(events.next(
                             StreamEventType.GENERATION_FAILED,
-                            Map.of("errorCode", "PRD_GENERATION_FAILED", "retryable", true))));
+                            Map.of("errorCode", errorCode(error), "retryable", retryable(error)))));
         });
     }
 
@@ -64,6 +64,7 @@ public final class PrdStreamOrchestrator {
                 }))
                 .onErrorResume(error -> {
                     if (isCancellation(error)) return Flux.error(error);
+                    if (isTaskLevelFailure(error)) return Flux.error(error);
                     failed.add(sectionId);
                     return Flux.just(events.next(StreamEventType.SECTION_FAILED,
                             Map.of("sectionId", sectionId, "errorCode", errorCode(error), "retryable", true)));
@@ -87,9 +88,38 @@ public final class PrdStreamOrchestrator {
                 && gateway.kind() == ModelGatewayException.Kind.CANCELLED;
     }
 
+    private boolean isTaskLevelFailure(Throwable error) {
+        if (!(error instanceof ModelGatewayException gateway)) return false;
+        return switch (gateway.kind()) {
+            case AUTHENTICATION, MODEL_NOT_FOUND, RATE_LIMITED, UNREACHABLE -> true;
+            case FORMAT_INCOMPATIBLE, TIMEOUT, CANCELLED, INTERNAL -> false;
+        };
+    }
+
     private String errorCode(Throwable error) {
-        if (error instanceof ModelGatewayException gateway) return gateway.kind().name();
+        if (error instanceof ModelGatewayException gateway) {
+            return switch (gateway.kind()) {
+                case UNREACHABLE -> "MODEL_UNREACHABLE";
+                case AUTHENTICATION -> "MODEL_AUTHENTICATION_FAILED";
+                case MODEL_NOT_FOUND -> "MODEL_NOT_FOUND";
+                case RATE_LIMITED -> "MODEL_RATE_LIMITED";
+                case FORMAT_INCOMPATIBLE -> "MODEL_FORMAT_INCOMPATIBLE";
+                case TIMEOUT -> "MODEL_TIMEOUT";
+                case CANCELLED -> "MODEL_CANCELLED";
+                case INTERNAL -> "MODEL_INTERNAL_ERROR";
+            };
+        }
         return "SECTION_GENERATION_FAILED";
+    }
+
+    private boolean retryable(Throwable error) {
+        if (error instanceof ModelGatewayException gateway) {
+            return switch (gateway.kind()) {
+                case UNREACHABLE, RATE_LIMITED, FORMAT_INCOMPATIBLE, TIMEOUT, INTERNAL -> true;
+                case AUTHENTICATION, MODEL_NOT_FOUND, CANCELLED -> false;
+            };
+        }
+        return true;
     }
 
     public record Execution(

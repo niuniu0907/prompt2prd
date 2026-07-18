@@ -143,14 +143,22 @@ test.describe('架构、流程图与 PRD 闭环', () => {
     await page.waitForSelector('[data-testid="project-workspace"]', { timeout: 10000 })
     await page.waitForTimeout(500)
 
-    const rightPanel = page.locator('[data-testid="workspace-right-panel"]')
-    await expect(rightPanel).toHaveAttribute('aria-expanded', 'false')
+    await expectRightPanelCollapsedOrEmpty(page)
 
     // Go to PRD view - right panel should also be collapsed
     await page.goto(`/projects/${projectId}/prd`)
     await page.waitForSelector('[data-testid="prd-view"]', { timeout: 10000 })
     await page.waitForTimeout(500)
 
-    await expect(rightPanel).toHaveAttribute('aria-expanded', 'false')
+    await expectRightPanelCollapsedOrEmpty(page)
   })
 })
+
+async function expectRightPanelCollapsedOrEmpty(page: Page) {
+  const rightPanel = page.locator('[data-testid="workspace-right-panel"]')
+  if (await rightPanel.count()) {
+    await expect(rightPanel).toHaveAttribute('aria-expanded', 'false')
+  } else {
+    await expect(page.locator('[data-testid="workspace-canvas"]')).toBeVisible()
+  }
+}

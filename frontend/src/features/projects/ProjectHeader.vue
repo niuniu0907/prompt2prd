@@ -17,7 +17,7 @@ const props = withDefaults(
     saveStatus?: string
     progressItems?: ProjectProgressItem[]
     canGeneratePrd?: boolean
-    generateDisabledReason?: string
+    generateHint?: string
   }>(),
   {
     completeness: 0,
@@ -26,7 +26,7 @@ const props = withDefaults(
     saveStatus: undefined,
     progressItems: () => [],
     canGeneratePrd: false,
-    generateDisabledReason: '需求、架构和冲突处理完成后才能生成 PRD',
+    generateHint: '首次 AI 解析完成后即可生成 PRD 草稿。',
   },
 )
 
@@ -34,26 +34,15 @@ const emit = defineEmits<{
   generatePrd: []
 }>()
 
-const stageLabel = computed(() => {
-  const map: Record<ProjectStage, string> = {
-    CLARIFYING: '需求澄清',
-    ARCHITECTURE: '架构建议',
-    FLOWCHART: '流程图',
-    PRD: 'PRD 生成',
-    COMPLETED: '已完成',
-  }
-  return map[props.stage] ?? props.stage
-})
-
-const completenessPercent = computed(() => `${Math.round(props.completeness)}%`)
-
 const showSaveStatus = computed(() => Boolean(props.saveStatus))
 
-const progressItems = computed<ProjectProgressItem[]>(() => props.progressItems.length
+const summaryItems = computed<ProjectProgressItem[]>(() => props.progressItems.length
   ? props.progressItems
   : [
-      { label: '需求澄清', value: stageLabel.value, tone: props.stage === 'CLARIFYING' ? 'pending' : 'done' },
-      { label: '总体进度', value: completenessPercent.value, tone: props.completeness >= 80 ? 'done' : 'pending' },
+      { label: '已确认', value: props.stage === 'CLARIFYING' ? '0项' : '已开始', tone: 'done' },
+      { label: '待确认', value: '0项', tone: 'pending' },
+      { label: '待分析', value: '0项', tone: 'pending' },
+      { label: '冲突', value: '0项', tone: 'pending' },
     ])
 </script>
 
@@ -62,17 +51,17 @@ const progressItems = computed<ProjectProgressItem[]>(() => props.progressItems.
     <div class="project-header__left">
       <h1 class="project-header__name">{{ projectName }}</h1>
       <div class="project-header__meta">
+        <span class="project-header__completeness">
+          需求完整度：<b>{{ completeness }}%</b>
+        </span>
         <span
-          v-for="item in progressItems"
+          v-for="item in summaryItems"
           :key="item.label"
           class="project-header__progress"
           :class="`project-header__progress--${item.tone ?? 'pending'}`"
         >
           <span>{{ item.label }}</span>
           <b>{{ item.value }}</b>
-        </span>
-        <span class="project-header__completeness" data-testid="header-completeness">
-          总体进度：{{ completenessPercent }}
         </span>
         <span v-if="modelName" class="project-header__model">{{ modelName }}</span>
       </div>
@@ -92,17 +81,16 @@ const progressItems = computed<ProjectProgressItem[]>(() => props.progressItems.
         type="button"
         data-testid="header-generate-prd"
         :disabled="!canGeneratePrd"
-        :title="canGeneratePrd ? '进入 PRD 页面生成文档' : generateDisabledReason"
+        :title="canGeneratePrd ? '进入 PRD 页面生成当前版本文档' : generateHint"
         @click="emit('generatePrd')"
       >
         生成 PRD
       </button>
       <span
-        v-if="!canGeneratePrd"
         class="project-header__generate-hint"
         data-testid="header-generate-hint"
       >
-        {{ generateDisabledReason }}
+        {{ generateHint }}
       </span>
     </div>
   </header>
@@ -145,9 +133,8 @@ const progressItems = computed<ProjectProgressItem[]>(() => props.progressItems.
   flex-wrap: wrap;
 }
 
-.project-header__stage,
-.project-header__completeness,
 .project-header__model,
+.project-header__completeness,
 .project-header__progress {
   font-size: 11px;
   font-weight: 600;
@@ -161,6 +148,15 @@ const progressItems = computed<ProjectProgressItem[]>(() => props.progressItems.
   align-items: center;
   color: var(--color-text-secondary);
   background: var(--color-surface-muted);
+}
+
+.project-header__completeness {
+  color: var(--color-text-primary);
+  background: #effbd4;
+}
+
+.project-header__completeness b {
+  font-weight: 760;
 }
 
 .project-header__progress span {
@@ -186,11 +182,6 @@ const progressItems = computed<ProjectProgressItem[]>(() => props.progressItems.
 
 .project-header__progress--blocked b {
   color: #873f3f;
-}
-
-.project-header__completeness {
-  color: var(--color-text-primary);
-  background: var(--color-primary);
 }
 
 .project-header__model {

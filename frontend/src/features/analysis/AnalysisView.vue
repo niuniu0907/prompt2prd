@@ -7,13 +7,13 @@ import {
   type AnalysisCallbacks,
   type AnalysisRequestBody,
 } from '@/api/analysisApi'
+import { isModelSetupErrorMessage, validateAnalysisModelSettings } from '@/api/modelSettingsValidation'
 import type { KnownStreamEvent } from '@/api/streamEvents'
 import {
   analysisStateRepository,
   type AnalysisState,
   type AnalysisStateStore,
 } from '@/db/repositories/analysisStateRepository'
-import { architectureRepository } from '@/db/repositories/architectureRepository'
 import { projectRepository } from '@/db/repositories/projectRepository'
 import type { Project } from '@/features/projects/types'
 import type {
@@ -44,12 +44,10 @@ const router = useRouter()
 const modelConfig = useModelConfigStore()
 const client = props.client ?? createAnalysisClient()
 const stateStore = props.store ?? analysisStateRepository
-const architectureSelected = props.architectureSelected ?? ((projectId: string) => architectureRepository.selected(projectId))
 const currentProject = ref<Project | null>(props.project ?? null)
 const requirements = ref<RequirementItem[]>([])
 const questions = ref<ClarificationQuestion[]>([])
 const completeness = ref<CompletenessScore>(emptyCompleteness())
-const architectureConfirmed = ref(false)
 const progress = ref(0)
 const progressMessage = ref('准备分析项目输入')
 const analyzing = ref(false)
@@ -64,18 +62,14 @@ const conflictedRequirements = computed(() => formalRequirements.value.filter(it
 const nextAction = computed(() => {
   if (formalRequirements.value.length === 0) return { label: '重新分析需求', target: null }
   if (pendingQuestions.value.length) return { label: '回答澄清问题', target: 'project-questions' }
-  if (pendingRequirements.value.length || conflictedRequirements.value.length) return { label: '查看并确认需求卡片', target: 'project-requirements' }
-  if (!architectureConfirmed.value) return { label: '进入架构建议', target: 'project-architecture' }
   if (currentProject.value?.stage === 'PRD' || currentProject.value?.stage === 'COMPLETED') {
     return { label: '查看 PRD', target: 'project-prd' }
   }
-  return { label: '生成业务流程图', target: 'project-flowchart' }
+  return { label: '生成 PRD', target: 'project-prd' }
 })
 
 const needsModelSetup = computed(() => {
-  const msg = errorMessage.value
-  return msg.includes('模型') || msg.includes('API Key') || msg.includes('Key 来源')
-    || msg.includes('Base URL') || msg.includes('服务商')
+  return isModelSetupErrorMessage(errorMessage.value)
 })
 
 function goToModelSettings() {
@@ -99,11 +93,7 @@ onMounted(async () => {
       return
     }
     currentProject.value = project
-    const [restored, selectedArchitecture] = await Promise.all([
-      stateStore.load(project.id),
-      architectureSelected(project.id),
-    ])
-    architectureConfirmed.value = Boolean(selectedArchitecture)
+    const restored = await stateStore.load(project.id)
     if (restored) applyState(restored)
     loading.value = false
     if (!restored || !hasAnalysisContent(restored)) await startAnalysis()
@@ -116,21 +106,12 @@ onMounted(async () => {
 
 onBeforeUnmount(() => client.cancel())
 
-function validateModelSettings(settings: unknown): string | null {
-  const s = settings as Record<string, unknown> | null | undefined
-  if (!s) return '模型配置未设置，请先在「模型设置」页面配置 AI 服务。'
-  if (!String(s.model ?? '').trim()) return '模型名称未填写，请先在「模型设置」页面选择模型。'
-  if (s.keySource === 'USER' && !String(s.apiKey ?? '').trim()) return 'API Key 未填写，请先在「模型设置」页面输入 Key。'
-  if (s.keySource !== 'SYSTEM' && s.keySource !== 'USER') return '模型 Key 来源未选择，请先在「模型设置」页面配置。'
-  return null
-}
-
 async function startAnalysis() {
   const project = currentProject.value
   if (!project || analyzing.value) return
 
   const settings = props.modelSettings ?? requestModelSettings()
-  const validation = validateModelSettings(settings)
+  const validation = validateAnalysisModelSettings(settings)
   if (validation) {
     errorMessage.value = validation
     return
@@ -155,6 +136,7 @@ async function startAnalysis() {
     }, { onEvent: handleEvent, onWarning: message => console.warn(message) })
     const saved = await stateStore.saveFinal(project.id, finalState)
     applyState(saved)
+    notifyAnalysisStateSaved(project.id)
     progress.value = 100
     progressMessage.value = '初始分析已完成并保存'
   } catch (error) {
@@ -163,6 +145,10 @@ async function startAnalysis() {
   } finally {
     analyzing.value = false
   }
+}
+
+function notifyAnalysisStateSaved(projectId: string) {
+  window.dispatchEvent(new CustomEvent('prompt2prd:analysis-state-saved', { detail: { projectId } }))
 }
 
 function handleEvent(event: KnownStreamEvent) {
@@ -251,7 +237,7 @@ function readableError(error: unknown) {
     <section v-if="loading" class="analysis-view__loading">正在恢复本地分析状态…</section>
     <template v-else>
       <header class="analysis-view__header">
-        <div><span>需求概览</span><h1>从想法到可确认的需求</h1></div>
+        <div><span>需求输入</span><h1>解析输入并整理已有需求</h1></div>
         <button
           v-if="errorMessage"
           type="button"
@@ -274,7 +260,7 @@ function readableError(error: unknown) {
           <strong>{{ confirmedRequirements.length }}</strong>
         </article>
         <article>
-          <span>待确认内容</span>
+          <span>待确认/待分析</span>
           <strong>{{ pendingRequirements.length + pendingQuestions.length }}</strong>
         </article>
         <article :class="{ 'overview-board__blocked': conflictedRequirements.length > 0 }">
@@ -296,7 +282,7 @@ function readableError(error: unknown) {
       <RequirementSummary :requirements="formalRequirements" />
 
       <section v-if="pendingQuestions.length" class="question-preview">
-        <header><div><span>第一轮澄清</span><h2>还需要你确认 {{ pendingQuestions.length }} 个问题</h2></div><small>下一步将在问题向导中集中回答</small></header>
+        <header><div><span>第一轮澄清</span><h2>还需要你确认 {{ pendingQuestions.length }} 个问题</h2></div><small>下一步将在需求澄清中集中回答</small></header>
         <article v-for="question in pendingQuestions" :key="question.id">
           <div><strong>{{ question.text }}</strong><p>{{ question.reason }}</p></div>
           <footer><span>AI 提问</span><span>待回答</span></footer>

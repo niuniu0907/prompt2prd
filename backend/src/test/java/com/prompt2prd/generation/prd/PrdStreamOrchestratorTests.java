@@ -31,7 +31,7 @@ class PrdStreamOrchestratorTests {
     void preservesChunkOrderAndSectionOwnership() {
         ScenarioGateway gateway = new ScenarioGateway(null, false);
         PrdGenerator generator = new PrdGenerator(gateway);
-        PrdGenerationPlan plan = generator.plan(PrdTestFixtures.finalState(), List.of(), "apis");
+        PrdGenerationPlan plan = generator.plan(PrdTestFixtures.finalState(), List.of(), "acceptance-criteria");
         ModelCallContext context = context();
 
         List<StreamEvent> events = new PrdStreamOrchestrator(generator)
@@ -46,14 +46,14 @@ class PrdStreamOrchestratorTests {
                 StreamEventType.GENERATION_COMPLETED);
         assertThat(events).extracting(StreamEvent::eventId).containsExactly(1L, 2L, 3L, 4L, 5L);
         assertThat(events.subList(0, 4)).allSatisfy(event ->
-                assertThat(event.data().get("sectionId")).isEqualTo("apis"));
+                assertThat(event.data().get("sectionId")).isEqualTo("acceptance-criteria"));
         assertThat(events.get(1).data().get("delta")).isEqualTo("第一段");
         assertThat(events.get(2).data().get("delta")).isEqualTo("第二段");
     }
 
     @Test
     void oneSectionFailureDoesNotDiscardCompletedSiblings() {
-        ScenarioGateway gateway = new ScenarioGateway("rules-exceptions", false);
+        ScenarioGateway gateway = new ScenarioGateway("business-rules", false);
         PrdGenerator generator = new PrdGenerator(gateway);
         PrdGenerationPlan plan = generator.plan(PrdTestFixtures.finalState(), List.of(), null);
         ModelCallContext context = context();
@@ -63,18 +63,36 @@ class PrdStreamOrchestratorTests {
                 .collectList().block();
 
         assertThat(events).anyMatch(event -> event.type() == StreamEventType.SECTION_FAILED
-                && event.data().get("sectionId").equals("rules-exceptions"));
+                && event.data().get("sectionId").equals("business-rules"));
         assertThat(events).anyMatch(event -> event.type() == StreamEventType.SECTION_COMPLETED
-                && event.data().get("sectionId").equals("architecture"));
+                && event.data().get("sectionId").equals("data-requirements"));
         assertThat(events).filteredOn(event -> event.type().terminal()).singleElement()
                 .extracting(StreamEvent::type).isEqualTo(StreamEventType.GENERATION_COMPLETED);
+    }
+
+    @Test
+    void taskLevelModelFailureStopsInsteadOfFailingEverySection() {
+        ScenarioGateway gateway = new ScenarioGateway(
+                null, false, ModelGatewayException.Kind.AUTHENTICATION);
+        PrdGenerator generator = new PrdGenerator(gateway);
+        PrdGenerationPlan plan = generator.plan(PrdTestFixtures.finalState(), List.of(), null);
+        ModelCallContext context = context();
+
+        List<StreamEvent> events = new PrdStreamOrchestrator(generator)
+                .generate(new PrdStreamOrchestrator.Execution(context.requestId(), context, plan))
+                .collectList().block();
+
+        assertThat(events).extracting(StreamEvent::type).containsExactly(
+                StreamEventType.SECTION_STARTED, StreamEventType.GENERATION_FAILED);
+        assertThat(events.getLast().data()).containsEntry("errorCode", "MODEL_AUTHENTICATION_FAILED")
+                .containsEntry("retryable", false);
     }
 
     @Test
     void cancellationProducesOneAbortedTerminalAndNoLaterContent() {
         ScenarioGateway gateway = new ScenarioGateway(null, true);
         PrdGenerator generator = new PrdGenerator(gateway);
-        PrdGenerationPlan plan = generator.plan(PrdTestFixtures.finalState(), List.of(), "apis");
+        PrdGenerationPlan plan = generator.plan(PrdTestFixtures.finalState(), List.of(), "acceptance-criteria");
         ModelCallContext context = context();
 
         List<StreamEvent> events = new PrdStreamOrchestrator(generator)
@@ -95,10 +113,16 @@ class PrdStreamOrchestratorTests {
     static final class ScenarioGateway implements ModelGateway {
         private final String failedSection;
         private final boolean cancelled;
+        private final ModelGatewayException.Kind failureKind;
 
         ScenarioGateway(String failedSection, boolean cancelled) {
+            this(failedSection, cancelled, ModelGatewayException.Kind.TIMEOUT);
+        }
+
+        ScenarioGateway(String failedSection, boolean cancelled, ModelGatewayException.Kind failureKind) {
             this.failedSection = failedSection;
             this.cancelled = cancelled;
+            this.failureKind = failureKind;
         }
 
         @Override public <T> Mono<StructuredModelResult<T>> generateStructured(StructuredModelRequest<T> request) {
@@ -109,7 +133,10 @@ class PrdStreamOrchestratorTests {
                     ModelGatewayException.Kind.CANCELLED, "cancelled"));
             String prompt = request.messages().getLast().content();
             if (failedSection != null && prompt.contains("Section=" + failedSection + " |")) {
-                return Flux.error(new ModelGatewayException(ModelGatewayException.Kind.TIMEOUT, "timeout"));
+                return Flux.error(new ModelGatewayException(failureKind, "failed"));
+            }
+            if (failedSection == null && failureKind == ModelGatewayException.Kind.AUTHENTICATION) {
+                return Flux.error(new ModelGatewayException(failureKind, "failed"));
             }
             return Flux.just(
                     new TextModelChunk(request.context().requestId(), 1, "第一段"),

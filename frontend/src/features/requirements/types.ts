@@ -3,9 +3,12 @@ import { assertUtcIsoDateTime, assertUuid } from '@/features/projects/types'
 import type { FlowchartRecord } from '@/features/flowchart/types'
 
 export const REQUIREMENT_STATUSES = [
+  'UNANALYZED',
   'INFERRED',
   'PENDING',
   'CONFIRMED',
+  'SKIPPED',
+  'NOT_APPLICABLE',
   'CONFLICTED',
 ] as const
 export type RequirementStatus = (typeof REQUIREMENT_STATUSES)[number]
@@ -71,7 +74,15 @@ export interface CreateRequirementItemInput {
   now?: UtcIsoDateTime
 }
 
-export const QUESTION_INPUT_TYPES = ['SINGLE_SELECT', 'MULTI_SELECT', 'TEXT', 'CONFIRMATION'] as const
+export const QUESTION_INPUT_TYPES = [
+  'SINGLE_SELECT',
+  'MULTI_SELECT',
+  'CUSTOM_TEXT',
+  'SINGLE_SELECT_CUSTOM',
+  'MULTI_SELECT_CUSTOM',
+  'TEXT',
+  'CONFIRMATION',
+] as const
 export type QuestionInputType = (typeof QUESTION_INPUT_TYPES)[number]
 export type ClarificationQuestionStatus = 'PENDING' | 'ANSWERED' | 'SKIPPED'
 

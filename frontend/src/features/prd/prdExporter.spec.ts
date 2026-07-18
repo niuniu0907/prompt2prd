@@ -17,20 +17,20 @@ function section(key: string, order: number, content: string, status: PrdSection
 describe('exportPrdMarkdown', () => {
   it('produces valid markdown with project name', () => {
     const sections = [
-      section('coding-agent-guide', 1, '## 说明\n\nCoding agent 使用说明。'),
-      section('product-context', 2, '产品定位：测试项目。'),
+      section('product-goals', 1, '## 目标\n\n产品目标说明。'),
+      section('user-roles', 2, '用户角色：普通用户。'),
     ]
     const result = exportPrdMarkdown(sections, '测试项目')
     expect(result).toContain('# 测试项目 - PRD')
     expect(result).toContain('## 1. Section 1')
-    expect(result).toContain('Coding agent 使用说明')
+    expect(result).toContain('产品目标说明')
   })
 
   it('skips sections without content', () => {
     const sections = [
-      section('coding-agent-guide', 1, ''),
-      section('product-context', 2, '有内容'),
-      section('roles-permissions', 3, '', 'DRAFT'),
+      section('product-goals', 1, ''),
+      section('user-roles', 2, '有内容'),
+      section('feature-scope', 3, '', 'DRAFT'),
     ]
     const result = exportPrdMarkdown(sections, 'Test')
     expect(result).toContain('有内容')
@@ -40,10 +40,10 @@ describe('exportPrdMarkdown', () => {
 
   it('skips failed and generating sections', () => {
     const sections = [
-      section('coding-agent-guide', 1, '章节1', 'COMPLETED'),
-      section('product-context', 2, '章节2', 'FAILED'),
-      section('roles-permissions', 3, '章节3', 'GENERATING'),
-      section('features-priorities', 4, '章节4', 'DRAFT'),
+      section('product-goals', 1, '章节1', 'COMPLETED'),
+      section('user-roles', 2, '章节2', 'FAILED'),
+      section('feature-scope', 3, '章节3', 'GENERATING'),
+      section('user-stories', 4, '章节4', 'DRAFT'),
     ]
     const result = exportPrdMarkdown(sections, 'Test')
     expect(result).toContain('章节1')

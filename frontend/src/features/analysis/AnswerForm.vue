@@ -45,7 +45,7 @@ function fallbackOptions(question: ClarificationQuestion) {
   }
   if (/期限|时间|多久|多少|几/.test(text)) {
     return [
-      { label: '采用常见默认规则', impact: '便于快速推进，后续可在需求卡片中细化', recommended: true },
+      { label: '采用常见默认规则', impact: '便于快速推进，后续可在需求确认中细化', recommended: true },
       { label: '从简处理', impact: '减少规则分支，适合 MVP', recommended: false },
       { label: '暂不确定，先按推荐方案', impact: '先保留为可调整决策', recommended: false },
     ]
@@ -63,7 +63,9 @@ function toggleOption(id: string, checked: boolean) {
     update({ selectedOptionIds: [], customAnswer: checked ? fallback.label : null })
     return
   }
-  if (props.question.inputType === 'SINGLE_SELECT' || props.question.inputType === 'CONFIRMATION') {
+  if (props.question.inputType === 'SINGLE_SELECT'
+    || props.question.inputType === 'SINGLE_SELECT_CUSTOM'
+    || props.question.inputType === 'CONFIRMATION') {
     update({ selectedOptionIds: checked ? [id] : [] })
     return
   }
@@ -82,7 +84,7 @@ function toggleOption(id: string, checked: boolean) {
       <label v-for="option in displayOptions" :key="option.id" class="answer-option">
         <input
           :data-testid="`option-${question.semanticKey}-${option.id.slice(-2)}`"
-          :type="question.inputType === 'MULTI_SELECT' && !option.fallback ? 'checkbox' : 'radio'"
+          :type="(question.inputType === 'MULTI_SELECT' || question.inputType === 'MULTI_SELECT_CUSTOM') && !option.fallback ? 'checkbox' : 'radio'"
           :name="question.id"
           :checked="option.fallback ? modelValue.customAnswer === option.label : modelValue.selectedOptionIds.includes(option.id)"
           :disabled="disabled || modelValue.skipped"

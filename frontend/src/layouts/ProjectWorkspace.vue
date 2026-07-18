@@ -6,7 +6,6 @@ import {
   type AnalysisState,
   type AnalysisStateStore,
 } from '@/db/repositories/analysisStateRepository'
-import { architectureRepository } from '@/db/repositories/architectureRepository'
 import {
   projectRepository,
   type ProjectListFilter,
@@ -33,7 +32,6 @@ const emit = defineEmits<{
 
 const repository = props.repository ?? projectRepository
 const stateStore = props.stateStore ?? analysisStateRepository
-const architectureSelected = props.architectureSelected ?? ((projectId: string) => architectureRepository.selected(projectId))
 const route = useRoute()
 const router = useRouter()
 
@@ -43,7 +41,6 @@ function handleAppShellNavigate(view: ProjectListFilter) {
 
 const project = ref<Project | null>(null)
 const analysisState = ref<AnalysisState | null>(null)
-const architectureConfirmed = ref(false)
 const loading = ref(true)
 const errorMessage = ref('')
 
@@ -60,52 +57,51 @@ let projectNavStartWidth = 0
 
 const displayProject = computed(() => analysisState.value?.project ?? project.value)
 const formalRequirements = computed(() => (analysisState.value?.requirements ?? []).filter(isFormalRequirement))
-const hasFormalRequirements = computed(() => formalRequirements.value.length > 0)
 const pendingRequirements = computed(() => formalRequirements.value.filter(item => item.status === 'PENDING'))
 const confirmedRequirements = computed(() => formalRequirements.value.filter(item => item.status === 'CONFIRMED'))
+const unanalyzedRequirements = computed(() => (analysisState.value?.requirements ?? [])
+  .filter(item => item.status === 'UNANALYZED' || item.type === 'MISSING_INFORMATION'))
 const pendingQuestions = computed(() => (analysisState.value?.questions ?? []).filter(item => item.status === 'PENDING'))
 const openConflicts = computed(() => (analysisState.value?.conflicts ?? []).filter(item => item.status === 'OPEN'))
 const coreConflictCount = computed(() => openConflicts.value.filter(item => item.core).length)
 const totalProgress = computed(() => analysisState.value?.completeness.total ?? displayProject.value?.completeness ?? 0)
-const prdStarted = computed(() => displayProject.value?.stage === 'PRD' || displayProject.value?.stage === 'COMPLETED')
+const hasAnalysisContent = computed(() => Boolean(analysisState.value)
+  && (formalRequirements.value.length > 0
+    || unanalyzedRequirements.value.length > 0
+    || (analysisState.value?.questions.length ?? 0) > 0
+    || (analysisState.value?.answers.length ?? 0) > 0
+    || (analysisState.value?.conflicts.length ?? 0) > 0))
 const progressItems = computed<Array<{ label: string; value: string; tone: 'done' | 'pending' | 'blocked' }>>(() => [
   {
-    label: '需求澄清',
-    value: !hasFormalRequirements.value ? '待补充' : pendingQuestions.value.length === 0 ? '已完成' : '进行中',
-    tone: hasFormalRequirements.value && pendingQuestions.value.length === 0 ? 'done' : 'pending',
+    label: '已确认',
+    value: `${confirmedRequirements.value.length}项`,
+    tone: 'done',
   },
   {
-    label: '需求确认',
-    value: hasFormalRequirements.value ? `${confirmedRequirements.value.length}/${formalRequirements.value.length}` : '无需求',
-    tone: pendingRequirements.value.length === 0 && hasFormalRequirements.value ? 'done' : 'pending',
+    label: '待确认',
+    value: `${pendingRequirements.value.length}项`,
+    tone: 'pending',
   },
   {
-    label: '架构选择',
-    value: architectureConfirmed.value ? '已完成' : '未完成',
-    tone: architectureConfirmed.value ? 'done' : 'pending',
+    label: '待分析',
+    value: `${unanalyzedRequirements.value.length + pendingQuestions.value.length}项`,
+    tone: 'pending',
   },
   {
-    label: 'PRD生成',
-    value: prdStarted.value ? '已开始' : '未开始',
-    tone: prdStarted.value ? 'done' : 'pending',
+    label: '冲突',
+    value: `${openConflicts.value.length}项`,
+    tone: openConflicts.value.length ? 'blocked' : 'pending',
   },
 ])
-const canGeneratePrd = computed(() =>
-  totalProgress.value >= 80
-  && confirmedRequirements.value.length > 0
-  && pendingQuestions.value.length === 0
-  && pendingRequirements.value.length === 0
-  && architectureConfirmed.value
-  && coreConflictCount.value === 0,
-)
-const generateDisabledReason = computed(() => {
-  if (confirmedRequirements.value.length === 0) return '还没有已确认需求，先补充并确认需求后才能生成PRD'
-  if (pendingRequirements.value.length > 0) return `还需确认${pendingRequirements.value.length}条需求后才能生成PRD`
-  if (pendingQuestions.value.length > 0) return `还需回答${pendingQuestions.value.length}个澄清问题后才能生成PRD`
-  if (!architectureConfirmed.value) return '还需确认架构方案后才能生成PRD'
-  if (coreConflictCount.value > 0) return `还需解决${coreConflictCount.value}个核心冲突后才能生成PRD`
-  if (totalProgress.value < 80) return `总体进度达到80%后才能生成PRD，当前为${Math.round(totalProgress.value)}%`
-  return '可以生成PRD'
+const canGeneratePrd = computed(() => hasAnalysisContent.value)
+const generateHint = computed(() => {
+  if (!hasAnalysisContent.value) return '首次 AI 解析完成后即可生成 PRD 草稿。'
+  const waiting = unanalyzedRequirements.value.length + pendingQuestions.value.length
+  if (totalProgress.value < 100 || waiting > 0) {
+    return `当前完整度为 ${totalProgress.value}%，仍有 ${waiting} 项待分析。可以继续澄清，也可以先生成PRD草稿。`
+  }
+  if (coreConflictCount.value > 0) return '当前存在冲突，PRD 会标记为待处理；也可以先生成当前版本。'
+  return '关键信息已经足够，可以生成PRD。你也可以继续补充细节。'
 })
 const panelAttentionCount = computed(() =>
   pendingRequirements.value.length + pendingQuestions.value.length + openConflicts.value.length)
@@ -131,7 +127,7 @@ onMounted(async () => {
   try {
     await refreshProjectContext()
     syncFromRoute()
-    window.addEventListener('architecture_confirmed', refreshAfterWorkspaceEvent)
+    window.addEventListener('prompt2prd:analysis-state-saved', handleAnalysisStateSaved)
   } catch {
     errorMessage.value = '读取本地项目失败。'
   } finally {
@@ -141,7 +137,7 @@ onMounted(async () => {
 
 onBeforeUnmount(() => {
   stopProjectNavResize()
-  window.removeEventListener('architecture_confirmed', refreshAfterWorkspaceEvent)
+  window.removeEventListener('prompt2prd:analysis-state-saved', handleAnalysisStateSaved)
 })
 
 function readStoredWidth(key: string, fallback: number, min: number, max: number) {
@@ -187,15 +183,13 @@ async function refreshProjectContext() {
     return
   }
   project.value = found
-  const [loadedState, selectedArchitecture] = await Promise.all([
-    stateStore.load(projectId),
-    architectureSelected(projectId),
-  ])
+  const loadedState = await stateStore.load(projectId)
   analysisState.value = loadedState ?? null
-  architectureConfirmed.value = Boolean(selectedArchitecture)
 }
 
-function refreshAfterWorkspaceEvent() {
+function handleAnalysisStateSaved(event: Event) {
+  const detail = (event as CustomEvent<{ projectId?: string }>).detail
+  if (detail?.projectId !== String(route.params.projectId)) return
   void refreshProjectContext()
 }
 
@@ -251,7 +245,7 @@ function goHome() {
         :save-status="saveStatus"
         :progress-items="progressItems"
         :can-generate-prd="canGeneratePrd"
-        :generate-disabled-reason="generateDisabledReason"
+        :generate-hint="generateHint"
         @generate-prd="handleGeneratePrd"
       />
 

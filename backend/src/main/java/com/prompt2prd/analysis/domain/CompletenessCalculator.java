@@ -76,14 +76,18 @@ public final class CompletenessCalculator {
                     inferred++;
                     points += 40;
                 }
-                case PENDING, CONFLICTED -> zeroScore++;
+                case PENDING, CONFLICTED, UNANALYZED, SKIPPED -> zeroScore++;
+                case NOT_APPLICABLE -> {
+                    denominator--;
+                    reasons.add("1 not applicable item removed from the denominator");
+                }
             }
         }
-        int score = clamp((int) Math.round((double) points / denominator));
+        int score = denominator <= 0 ? 0 : clamp((int) Math.round((double) points / denominator));
         reasons.add(confirmed + " confirmed item(s)");
         reasons.add(inferred + " inferred item(s)");
         if (zeroScore > 0) {
-            reasons.add(zeroScore + " pending or conflicted item(s) score zero");
+            reasons.add(zeroScore + " unanalyzed, pending, skipped, or conflicted item(s) score zero");
         }
         if (missing > 0) {
             reasons.add(missing + " missing target(s) remain in the denominator");

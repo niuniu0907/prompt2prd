@@ -22,7 +22,9 @@ import java.util.Map;
 import java.util.UUID;
 
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.atLeastOnce;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 class AnalysisControllerTests {
@@ -67,10 +69,20 @@ class AnalysisControllerTests {
                         new AnalysisAnswersRequest.AnswerTurn(
                                 UUID.randomUUID(), UUID.randomUUID(), "谁使用？", "产品经理",
                                 java.time.Instant.parse("2026-07-17T10:00:00Z"))),
+                        "我要做需求分析工作台", "还需要支持二次补充想法",
                         List.of(), settings))
                 .exchange()
                 .expectStatus().isOk()
                 .expectHeader().contentTypeCompatibleWith(MediaType.TEXT_EVENT_STREAM);
+
+        org.mockito.ArgumentCaptor<AnalysisOrchestrator.AnalysisExecution> executionCaptor =
+                org.mockito.ArgumentCaptor.forClass(AnalysisOrchestrator.AnalysisExecution.class);
+        verify(orchestrator, atLeastOnce()).analyze(executionCaptor.capture());
+        org.assertj.core.api.Assertions.assertThat(executionCaptor.getAllValues().getLast().currentInput())
+                .contains("Original project idea")
+                .contains("我要做需求分析工作台")
+                .contains("This round supplemental idea")
+                .contains("还需要支持二次补充想法");
     }
 
     @Test

@@ -7,7 +7,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { ProjectLookupRepository } from '@/db/repositories/projectRepository'
 import type { AnalysisState, AnalysisStateStore } from '@/db/repositories/analysisStateRepository'
 import type { Project } from '@/features/projects/types'
-import { PROJECT_MODULES } from '@/features/projects/types'
+import { OPTIONAL_PROJECT_MODULES, PRIMARY_PROJECT_MODULES, PROJECT_MODULES } from '@/features/projects/types'
 import ProjectWorkspace from '@/layouts/ProjectWorkspace.vue'
 import { createAppRouter } from '@/router'
 
@@ -161,6 +161,52 @@ function pendingStateStore(): AnalysisStateStore {
   }
 }
 
+function roundCompletedStateStore(): AnalysisStateStore {
+  return {
+    load: vi.fn(async (): Promise<AnalysisState> => ({
+      project,
+      requirements: [
+        {
+          id: '20000000-0000-4000-8000-000000000002',
+          projectId: project.id,
+          type: 'FEATURE',
+          title: '在线支付',
+          content: '支持订单在线支付',
+          status: 'CONFIRMED',
+          sourceType: 'USER_ANSWER',
+          sourceId: null,
+          locked: false,
+          metadata: {},
+          createdAt: '2026-07-17T08:00:00.000Z',
+          updatedAt: '2026-07-17T08:00:00.000Z',
+        },
+      ],
+      questions: [
+        {
+          id: '30000000-0000-4000-8000-000000000003',
+          projectId: project.id,
+          batchId: '30000000-0000-4000-8000-000000000004',
+          text: '是否需要支付？',
+          reason: '影响订单闭环',
+          dimension: 'BUSINESS_RULES',
+          targetField: 'payment',
+          semanticKey: 'payment',
+          inputType: 'SINGLE_SELECT',
+          options: [],
+          priority: 5,
+          status: 'ANSWERED',
+          createdAt: '2026-07-17T08:00:00.000Z',
+          updatedAt: '2026-07-17T08:00:00.000Z',
+        },
+      ],
+      answers: [],
+      conflicts: [],
+      completeness: { total: 60, dimensions: [], pendingCount: 0, hasCoreConflict: false },
+    })),
+    saveFinal: vi.fn(),
+  }
+}
+
 describe('ProjectWorkspace', () => {
   afterEach(() => {
     window.localStorage.removeItem('prompt2prd:layout:projectNavWidth')
@@ -217,7 +263,9 @@ describe('ProjectWorkspace', () => {
 
     wrapper.get('[data-testid="project-workspace"]')
     expect(wrapper.text()).toContain('宠物寄养平台')
-    expect(wrapper.get('[data-testid="header-completeness"]').text()).toContain('45%')
+    expect(wrapper.text()).toContain('需求输入')
+    expect(wrapper.text()).toContain('需求完整度：45%')
+    expect(wrapper.text()).not.toContain('总体进度')
   })
 
   it('lets users resize the project module column and keeps the width locally', async () => {
@@ -234,14 +282,17 @@ describe('ProjectWorkspace', () => {
     expect(window.localStorage.getItem('prompt2prd:layout:projectNavWidth')).toBe('300')
   })
 
-  it('displays all secondary navigation items', async () => {
+  it('displays four primary navigation items and keeps tools collapsed', async () => {
     const repository = createRepository()
     const { wrapper } = await mountWorkspace(repository)
 
-    const navLabels = ['需求概览', '问题向导', '需求卡片', '架构建议', '流程图', 'PRD']
+    const navLabels = ['需求输入', 'AI澄清', '需求结果', 'PRD文档']
     for (const label of navLabels) {
       expect(wrapper.text()).toContain(label)
     }
+    expect(wrapper.text()).toContain('更多工具')
+    expect(wrapper.text()).not.toContain('流程图')
+    expect(wrapper.text()).not.toContain('架构建议')
   })
 
   it('has only one active module at a time', async () => {
@@ -259,7 +310,17 @@ describe('ProjectWorkspace', () => {
     const repository = createRepository()
     const { wrapper, router } = await mountWorkspace(repository)
 
-    for (const mod of PROJECT_MODULES) {
+    for (const mod of PRIMARY_PROJECT_MODULES) {
+      await wrapper.get(`[data-module="${mod}"]`).trigger('click')
+      await flushPromises()
+
+      expect(router.currentRoute.value.name).toBe(`project-${mod}`)
+      wrapper.get('[data-testid="project-workspace"]')
+      expect(wrapper.text()).toContain('宠物寄养平台')
+    }
+
+    await wrapper.get('[data-testid="more-tools-toggle"]').trigger('click')
+    for (const mod of OPTIONAL_PROJECT_MODULES) {
       await wrapper.get(`[data-module="${mod}"]`).trigger('click')
       await flushPromises()
 
@@ -278,6 +339,7 @@ describe('ProjectWorkspace', () => {
 
     expect(router.currentRoute.value.params.projectId).toBe(project.id)
 
+    await wrapper.get('[data-testid="more-tools-toggle"]').trigger('click')
     await wrapper.get('[data-module="architecture"]').trigger('click')
     await flushPromises()
 
@@ -362,10 +424,10 @@ describe('ProjectWorkspace', () => {
 
     await wrapper.get('[data-testid="header-generate-prd"]').trigger('click')
     expect(wrapper.emitted('generatePrd')).toBeUndefined()
-    expect(wrapper.text()).toContain('还没有已确认需求，先补充并确认需求后才能生成PRD')
+    expect(wrapper.text()).toContain('首次 AI 解析完成后即可生成 PRD 草稿')
   })
 
-  it('prioritizes missing confirmed requirements over the 80 percent PRD threshold', async () => {
+  it('does not unlock PRD generation from legacy architecture candidates alone', async () => {
     const repository = createRepository()
     const { wrapper } = await mountWorkspace(
       repository,
@@ -374,9 +436,35 @@ describe('ProjectWorkspace', () => {
       vi.fn(async () => ({ id: '50000000-0000-4000-8000-000000000000' })),
     )
 
-    expect(wrapper.text()).toContain('需求澄清待补充')
-    expect(wrapper.text()).toContain('需求确认无需求')
-    expect(wrapper.get('[data-testid="header-generate-hint"]').text()).toBe('还没有已确认需求，先补充并确认需求后才能生成PRD')
+    expect(wrapper.text()).toContain('需求完整度：12%')
+    expect(wrapper.get('[data-testid="header-generate-prd"]').attributes('disabled')).toBeDefined()
+    expect(wrapper.get('[data-testid="header-generate-hint"]').text()).toBe('首次 AI 解析完成后即可生成 PRD 草稿。')
+  })
+
+  it('keeps clarification on the AI clarification page after a round is answered', async () => {
+    const repository = createRepository()
+    const { wrapper } = await mountWorkspace(
+      repository,
+      `/projects/${project.id}/questions`,
+      roundCompletedStateStore(),
+    )
+
+    expect(wrapper.text()).toContain('AI澄清')
+    expect(wrapper.text()).toContain('已确认1项')
+    expect(wrapper.text()).not.toContain('项目概览')
+  })
+
+  it('keeps the same requirement completeness model on the requirements page', async () => {
+    const repository = createRepository()
+    const { wrapper } = await mountWorkspace(
+      repository,
+      `/projects/${project.id}/requirements`,
+      roundCompletedStateStore(),
+    )
+
+    expect(wrapper.text()).toContain('需求结果')
+    expect(wrapper.text()).toContain('已确认1项')
+    expect(wrapper.text()).not.toContain('总体进度')
   })
 
   it('shows actionable content in the right panel', async () => {

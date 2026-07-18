@@ -11,6 +11,7 @@ import type { FlowchartDiagramResult, FlowchartDraft, FlowchartRecord } from './
 
 const route = inject(routeLocationKey, null)
 const projectId = computed(() => String(route?.params.projectId ?? ''))
+const selectedRequirementId = computed(() => String(route?.query?.requirementId ?? ''))
 const modelStore = useModelConfigStore()
 const analysisState = ref<AnalysisState | null>(null)
 const diagrams = ref<FlowchartRecord[]>([])
@@ -21,6 +22,9 @@ const generatingKey = ref<string | null>(null)
 const errorMessage = ref('')
 const copiedKey = ref<string | null>(null)
 const renderedSvg = reactive<Record<string, string>>({})
+const selectedRequirement = computed(() => analysisState.value?.requirements.find(
+  requirement => requirement.id === selectedRequirementId.value,
+) ?? null)
 
 onMounted(async () => {
   mermaid.initialize({ startOnLoad: false, securityLevel: 'strict', theme: 'neutral' })
@@ -37,6 +41,10 @@ onMounted(async () => {
 
 async function generate(targetKey: string | null = null) {
   if (!analysisState.value) return
+  if (!selectedRequirementId.value && !targetKey) {
+    errorMessage.value = '请先在需求确认页选择一条复杂需求，再生成流程图。'
+    return
+  }
   generatingKey.value = targetKey ?? 'all'; errorMessage.value = ''; failures.value = []
   try {
     const response = await generateFlowcharts({
@@ -92,8 +100,11 @@ async function copySource(diagram: FlowchartRecord) {
 
 function backendState(state: AnalysisState) {
   const { project, requirements, questions, answers, conflicts, completeness } = state
+  const scopedRequirements = selectedRequirementId.value
+    ? requirements.filter(requirement => requirement.id === selectedRequirementId.value)
+    : requirements
   return { project: { id: project.id, name: project.name, language: project.language,
-    stage: project.stage, completeness: project.completeness }, requirements, questions, answers, conflicts, completeness }
+    stage: project.stage, completeness: project.completeness }, requirements: scopedRequirements, questions, answers, conflicts, completeness }
 }
 
 function modelSettings() {
@@ -108,12 +119,26 @@ function readable(error: unknown) { return error instanceof Error ? error.messag
 
 <template>
   <main class="flowchart-view">
-    <header class="heading"><div><span>业务流程</span><h1>主流程与异常流程</h1><p>只使用已确认需求生成；每张图独立校验和保存。</p></div><button class="button-primary" type="button" :disabled="loading || Boolean(generatingKey) || !analysisState" @click="generate(null)">{{ generatingKey === 'all' ? '正在生成…' : '生成全部流程图' }}</button></header>
+    <header class="heading">
+      <div>
+        <span>业务流程图</span>
+        <h1>{{ selectedRequirement ? selectedRequirement.title : '按需生成流程图' }}</h1>
+        <p>{{ selectedRequirement ? '只围绕当前选中的复杂需求生成；每张图独立校验和保存。' : '流程图是可选附件，请先在需求确认页选择支付、订单、审核、退款等复杂需求。' }}</p>
+      </div>
+      <button
+        class="button-primary"
+        type="button"
+        :disabled="loading || Boolean(generatingKey) || !analysisState || !selectedRequirementId"
+        @click="generate(null)"
+      >
+        {{ generatingKey === 'all' ? '正在生成…' : '为该需求生成流程图' }}
+      </button>
+    </header>
     <div v-if="loading" class="status">正在读取流程图…</div>
     <div v-if="errorMessage" class="error" role="alert">{{ errorMessage }}</div>
     <section v-if="missingInformation.length" class="missing" aria-label="待补充信息"><h2>待补充信息</h2><ul><li v-for="item in missingInformation" :key="item">{{ item }}</li></ul></section>
     <section v-if="failures.length" class="failures" aria-label="生成失败的流程图"><article v-for="failure in failures" :key="`${failure.key}-${failure.message}`"><strong>{{ failure.title }}</strong><span>{{ failure.message }}</span><button type="button" :disabled="Boolean(generatingKey)" @click="generate(failure.key)">单图重试</button></article></section>
-    <section v-if="!loading && !diagrams.length" class="empty"><h2>还没有已保存流程图</h2><p>确认核心流程后生成主流程；确认异常事实后才会生成异常流程。</p></section>
+    <section v-if="!loading && !diagrams.length" class="empty"><h2>还没有已保存流程图</h2><p>流程图只在用户主动选择复杂需求后生成；简单列表、详情查看等需求不需要画图。</p></section>
     <section class="diagrams">
       <article v-for="diagram in diagrams" :key="diagram.id" class="diagram" :data-testid="`flowchart-${diagram.key}`">
         <header><div><span>{{ diagram.type === 'MAIN' ? '主流程' : '异常流程' }}</span><h2>{{ diagram.title }}</h2></div><div class="actions"><button type="button" @click="copySource(diagram)">{{ copiedKey === diagram.key ? '已复制' : '复制源码' }}</button><button type="button" :disabled="Boolean(generatingKey)" @click="generate(diagram.key)">{{ generatingKey === diagram.key ? '生成中…' : '重新生成' }}</button></div></header>

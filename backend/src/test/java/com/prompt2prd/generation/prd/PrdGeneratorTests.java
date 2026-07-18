@@ -33,37 +33,38 @@ class PrdGeneratorTests {
         PrdGenerationPlan plan = generator.plan(PrdTestFixtures.finalState(), List.of(), null);
 
         assertThat(plan.mode()).isEqualTo(PrdGenerationPlan.Mode.FINAL);
-        assertThat(plan.sections()).hasSize(17);
-        assertThat(plan.selectedArchitecture()).isNotNull();
+        assertThat(plan.sections()).hasSize(12);
+        assertThat(plan.selectedArchitecture()).isNull();
         assertThat(plan.missingItems()).isEmpty();
     }
 
     @Test
-    void marksLowCompletenessMissingArchitectureAndCoreConflictAsDraft() {
+    void marksLowCompletenessAndCoreConflictAsDraftWithoutBlockingOnArchitecture() {
         PrdGenerator generator = new PrdGenerator(new CapturingGateway());
         PrdGenerationPlan plan = generator.plan(
                 PrdTestFixtures.state(65, false, true, List.of()), List.of("缺少支付规则"), null);
 
         assertThat(plan.mode()).isEqualTo(PrdGenerationPlan.Mode.DRAFT);
-        assertThat(plan.missingItems()).anyMatch(item -> item.contains("65"))
-                .contains("尚未确认主架构。", "存在未解决的核心冲突。", "缺少支付规则");
+        assertThat(plan.missingItems())
+                .contains("存在未解决的核心冲突，相关章节必须标记为待确认或冲突。", "缺少支付规则")
+                .doesNotContain("尚未确认主架构。");
     }
 
     @Test
-    void onlyConfirmedRequirementsEnterPromptAndInputStateIsUnchanged() {
+    void pendingRequirementsEnterPromptWithPendingStatusAndInputStateIsUnchanged() {
         RequirementItem pending = PrdTestFixtures.item(RequirementType.ASSUMPTION,
                 "未确认退款", "secret-pending-content", RequirementStatus.PENDING, Map.of());
         var state = PrdTestFixtures.state(90, true, false, List.of(pending));
         List<RequirementItem> before = List.copyOf(state.requirements());
         CapturingGateway gateway = new CapturingGateway();
         PrdGenerator generator = new PrdGenerator(gateway);
-        PrdGenerationPlan plan = generator.plan(state, List.of(), "apis");
+        PrdGenerationPlan plan = generator.plan(state, List.of(), "acceptance-criteria");
         generator.streamSection(context(), plan.sections().getFirst()).collectList().block();
 
         assertThat(plan.sections()).singleElement().satisfies(section ->
-                assertThat(section.definition().key()).isEqualTo(PrdDefinition.SectionKey.APIS));
-        assertThat(gateway.lastRequest.messages().toString()).doesNotContain("secret-pending-content")
-                .contains("待确认：未确认退款", "MUST NOT");
+                assertThat(section.definition().key()).isEqualTo(PrdDefinition.SectionKey.ACCEPTANCE_CRITERIA));
+        assertThat(gateway.lastRequest.messages().toString())
+                .contains("secret-pending-content", "待确认：未确认退款", "MUST NOT");
         assertThat(state.requirements()).containsExactlyElementsOf(before);
     }
 
@@ -81,12 +82,12 @@ class PrdGeneratorTests {
                                 "scores", Map.of("LEARNING_COST", 5))));
         var state = PrdTestFixtures.state(90, false, false, List.of(architecture));
         PrdGenerator generator = new PrdGenerator(new CapturingGateway());
-        PrdGenerationPlan plan = generator.plan(state, List.of(), "architecture");
+        PrdGenerationPlan plan = generator.plan(state, List.of(), "data-requirements");
 
         assertThat(plan.sections()).singleElement().satisfies(section -> {
             assertThat(section.prompt())
-                    .contains("Confirmed technical decisions=")
-                    .contains("前端 Vue 3；后端 Spring Boot；部署 单容器")
+                    .doesNotContain("Optional technical plan status=")
+                    .doesNotContain("前端 Vue 3；后端 Spring Boot；部署 单容器")
                     .doesNotContain("30/35", "unselectedReasons", "备选架构", "LEARNING_COST");
         });
     }

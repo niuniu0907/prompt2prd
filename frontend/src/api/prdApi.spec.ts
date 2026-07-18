@@ -29,10 +29,10 @@ describe('createPrdClient', () => {
     const events: string[] = []
     const fetcher = vi.fn((_input: RequestInfo | URL, _init?: RequestInit) =>
       Promise.resolve(fakeResponse(
-        sectionStarted(requestId, 1, 'apis', '接口契约') +
-        sectionDelta(requestId, 2, 'apis', '第一段') +
-        sectionDelta(requestId, 3, 'apis', '第二段') +
-        sectionCompleted(requestId, 4, 'apis') +
+        sectionStarted(requestId, 1, 'acceptance', '验收标准') +
+        sectionDelta(requestId, 2, 'acceptance', '第一段') +
+        sectionDelta(requestId, 3, 'acceptance', '第二段') +
+        sectionCompleted(requestId, 4, 'acceptance') +
         generationCompleted(requestId, 5),
       )))
 
@@ -58,7 +58,7 @@ describe('createPrdClient', () => {
         signal.addEventListener('abort', () => { abortCount++ })
       }
       return Promise.resolve(fakeResponse(
-        sectionStarted(requestId, 1, 'apis', '接口') +
+        sectionStarted(requestId, 1, 'business-rules', '业务规则') +
         generationCompleted(requestId, 2),
       ))
     })
@@ -74,14 +74,14 @@ describe('createPrdClient', () => {
     const requestId = '123e4567-e89b-42d3-a456-426614174000'
     const fetcher = vi.fn((_input: RequestInfo | URL, _init?: RequestInit) =>
       Promise.resolve(fakeResponse(
-        sectionStarted(requestId, 1, 'architecture', '架构') +
-        sectionDelta(requestId, 2, 'architecture', 'Vue 3 + Spring Boot') +
-        sectionCompleted(requestId, 3, 'architecture') +
+        sectionStarted(requestId, 1, 'data-requirements', '数据需求') +
+        sectionDelta(requestId, 2, 'data-requirements', '订单、用户、支付记录') +
+        sectionCompleted(requestId, 3, 'data-requirements') +
         generationCompleted(requestId, 4),
       )))
 
     const client = createPrdClient(fetcher)
-    const result = await client.generateSection('architecture',
+    const result = await client.generateSection('data-requirements',
       { state: {}, missingInformation: [], modelSettings: {} })
 
     expect(result).toBeDefined()

@@ -4,10 +4,18 @@ export const PRD_SECTION_STATUSES = ['DRAFT', 'GENERATING', 'COMPLETED', 'FAILED
 export type PrdSectionStatus = (typeof PRD_SECTION_STATUSES)[number]
 
 export const PRD_SECTION_KEYS = [
-  'coding-agent-guide', 'product-context', 'roles-permissions', 'features-priorities',
-  'user-stories', 'flows-state-machine', 'rules-exceptions', 'architecture', 'data-model',
-  'pages', 'apis', 'non-functional', 'acceptance', 'implementation-phases', 'test-strategy',
-  'prohibitions', 'open-items',
+  'product-background-goals',
+  'target-users-scenarios',
+  'product-scope',
+  'feature-modules-priority',
+  'user-stories',
+  'business-rules',
+  'exception-scenarios',
+  'page-list-states',
+  'data-requirements',
+  'acceptance-criteria',
+  'non-functional-requirements',
+  'risks-assumptions-open-items',
 ] as const
 export type PrdSectionKey = (typeof PRD_SECTION_KEYS)[number]
 

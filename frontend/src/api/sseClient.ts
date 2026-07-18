@@ -41,10 +41,11 @@ export async function consumePostSse(options: PostSseOptions): Promise<unknown> 
   })
 
   if (!response.ok) {
-    throw new AnalysisStreamError(`Analysis request failed with HTTP ${response.status}`)
+    const error = await readHttpError(response)
+    throw new AnalysisStreamError(error.message, error.code, false)
   }
   if (!response.body) {
-    throw new AnalysisStreamError('Analysis response does not contain a stream')
+    throw new AnalysisStreamError('生成响应不包含流式内容。')
   }
 
   const reader = response.body.getReader()
@@ -113,8 +114,8 @@ export async function consumePostSse(options: PostSseOptions): Promise<unknown> 
     } else if (event.type === 'generation_aborted') {
       terminalReceived = true
       throw new AnalysisStreamError(
-        `Analysis was aborted: ${String(event.data.reason)}`,
-        'ANALYSIS_ABORTED',
+        `本次生成已停止：${String(event.data.reason)}`,
+        'GENERATION_ABORTED',
         true,
       )
     }
@@ -134,9 +135,36 @@ export async function consumePostSse(options: PostSseOptions): Promise<unknown> 
 
   if (buffer.trim()) processFrame(buffer)
   if (!terminalReceived) {
-    throw new AnalysisStreamError('Analysis stream disconnected before a terminal event')
+    throw new AnalysisStreamError('生成流在完成前中断，请重试。')
   }
   return terminalResult
+}
+
+async function readHttpError(response: Response): Promise<{ code: string; message: string }> {
+  const fallback = {
+    code: `HTTP_${response.status}`,
+    message: `生成请求失败（HTTP ${response.status}），请检查模型设置或稍后重试。`,
+  }
+  try {
+    const contentType = response.headers.get('Content-Type') ?? ''
+    if (!contentType.includes('application/json')) return fallback
+    const payload = await response.json() as Partial<{ code: unknown; message: unknown; requestId: unknown }>
+    const code = typeof payload.code === 'string' && payload.code ? payload.code : fallback.code
+    const requestId = typeof payload.requestId === 'string' && payload.requestId ? ` 请求 ID：${payload.requestId}` : ''
+    if (code === 'BAD_REQUEST') {
+      return {
+        code,
+        message: `请求参数无效，请检查模型设置和当前项目数据后重试。${requestId}`,
+      }
+    }
+    const upstreamMessage = typeof payload.message === 'string' && payload.message ? payload.message : fallback.message
+    return {
+      code,
+      message: `${upstreamMessage}${requestId}`,
+    }
+  } catch {
+    return fallback
+  }
 }
 
 function analysisFailureMessage(code: string): string {
@@ -146,12 +174,14 @@ function analysisFailureMessage(code: string): string {
     MODEL_AUTHENTICATION_FAILED: '模型 API Key 验证失败，请检查 Key 是否正确或是否已过期。',
     MODEL_NOT_FOUND: '当前模型不存在或该 Key 无权使用，请在模型设置中重新选择模型。',
     MODEL_RATE_LIMITED: '模型服务暂时限流，请稍后重试或切换到自己的 Key。',
-    MODEL_FORMAT_INCOMPATIBLE: '模型返回格式不符合需求分析结构，请重试或换一个支持结构化输出更稳定的模型。',
-    MODEL_TIMEOUT: '模型分析超时，请稍后重试，或减少输入内容后重新分析。',
-    MODEL_CANCELLED: '本次需求分析已停止。',
+    MODEL_FORMAT_INCOMPATIBLE: '模型返回格式不符合当前任务要求，请重试或换一个兼容性更稳定的模型。',
+    MODEL_TIMEOUT: '模型生成超时，请稍后重试，或减少输入内容后重新生成。',
+    MODEL_CANCELLED: '本次生成已停止。',
     MODEL_INTERNAL_ERROR: '模型服务内部错误，请稍后重试或切换模型服务。',
     ANALYSIS_OUTPUT_INVALID: '模型返回的需求分析结果不完整，系统没有保存这次结果，请重试或切换模型。',
     ANALYSIS_FAILED: 'AI 初始需求分析失败，问题向导还不能开始。请检查模型设置后重新分析。',
+    PRD_GENERATION_FAILED: 'PRD 生成失败，已保存内容未改变。请检查模型设置后重试。',
+    SECTION_GENERATION_FAILED: '当前 PRD 章节生成失败，可稍后重新生成该章节。',
   }
-  return messages[code] ?? `AI 初始需求分析失败（${code}），请检查模型设置后重新分析。`
+  return messages[code] ?? `AI 生成失败（${code}），请检查模型设置后重试。`
 }

@@ -22,33 +22,33 @@ describe('PrdRepository', () => {
 
   afterEach(async () => { await database.delete() })
 
-  it('initializes 17 sections on first access', async () => {
+  it('initializes 12 PRD sections on first access', async () => {
     const sections = await repository.initializeSections(projectId, '2026-07-17T01:00:00.000Z')
-    expect(sections).toHaveLength(17)
+    expect(sections).toHaveLength(12)
     expect(sections[0].order).toBe(1)
-    expect(sections[16].order).toBe(17)
+    expect(sections[11].order).toBe(12)
     expect(sections[0].status).toBe('DRAFT')
     // Second call returns existing sections
     const again = await repository.initializeSections(projectId, '2026-07-17T02:00:00.000Z')
-    expect(again).toHaveLength(17)
-    expect(await database.prd_section.where('projectId').equals(projectId).count()).toBe(17)
+    expect(again).toHaveLength(12)
+    expect(await database.prd_section.where('projectId').equals(projectId).count()).toBe(12)
   })
 
   it('updates content and rejects locked sections', async () => {
     await repository.initializeSections(projectId)
     const updated = await repository.updateContent(
-      projectId, 'apis', '## 接口契约\n\n内容', '2026-07-17T02:00:00.000Z')
-    expect(updated.content).toContain('接口契约')
+      projectId, 'acceptance', '## 验收标准\n\n内容', '2026-07-17T02:00:00.000Z')
+    expect(updated.content).toContain('验收标准')
 
     // Lock then reject edit
-    await repository.lockSection(projectId, 'apis', true)
-    await expect(repository.updateContent(projectId, 'apis', '新内容')).rejects.toThrow('locked')
+    await repository.lockSection(projectId, 'acceptance', true)
+    await expect(repository.updateContent(projectId, 'acceptance', '新内容')).rejects.toThrow('locked')
   })
 
   it('saveSection creates version record', async () => {
     await repository.initializeSections(projectId)
-    await repository.updateContent(projectId, 'apis', '草稿内容', '2026-07-17T01:00:00.000Z')
-    const saved = await repository.saveSection(projectId, 'apis', '最终内容', '2026-07-17T02:00:00.000Z')
+    await repository.updateContent(projectId, 'acceptance', '草稿内容', '2026-07-17T01:00:00.000Z')
+    const saved = await repository.saveSection(projectId, 'acceptance', '最终内容', '2026-07-17T02:00:00.000Z')
     expect(saved.status).toBe('COMPLETED')
     expect(saved.content).toBe('最终内容')
     expect(await database.requirement_version.where('projectId').equals(projectId).count()).toBe(1)
@@ -56,25 +56,25 @@ describe('PrdRepository', () => {
 
   it('saveGeneratedContent does not overwrite locked sections', async () => {
     await repository.initializeSections(projectId)
-    await repository.updateContent(projectId, 'apis', '旧内容')
-    await repository.lockSection(projectId, 'apis', true)
-    const result = await repository.saveGeneratedContent(projectId, 'apis', '新生成内容')
+    await repository.updateContent(projectId, 'acceptance', '旧内容')
+    await repository.lockSection(projectId, 'acceptance', true)
+    const result = await repository.saveGeneratedContent(projectId, 'acceptance', '新生成内容')
     expect(result.content).toBe('旧内容')
   })
 
   it('saveBeforeRegeneration creates backup version', async () => {
     await repository.initializeSections(projectId)
-    await repository.saveSection(projectId, 'apis', '当前内容', '2026-07-17T01:00:00.000Z')
-    await repository.saveBeforeRegeneration(projectId, 'apis', '2026-07-17T02:00:00.000Z')
+    await repository.saveSection(projectId, 'acceptance', '当前内容', '2026-07-17T01:00:00.000Z')
+    await repository.saveBeforeRegeneration(projectId, 'acceptance', '2026-07-17T02:00:00.000Z')
     expect(await database.requirement_version.where('projectId').equals(projectId).count()).toBe(2)
   })
 
   it('replaceAfterRegeneration updates and creates version', async () => {
     await repository.initializeSections(projectId)
-    await repository.saveSection(projectId, 'apis', '旧内容')
-    await repository.saveBeforeRegeneration(projectId, 'apis')
+    await repository.saveSection(projectId, 'acceptance', '旧内容')
+    await repository.saveBeforeRegeneration(projectId, 'acceptance')
     const replaced = await repository.replaceAfterRegeneration(
-      projectId, 'apis', '新生成内容', '2026-07-17T03:00:00.000Z')
+      projectId, 'acceptance', '新生成内容', '2026-07-17T03:00:00.000Z')
     expect(replaced.content).toBe('新生成内容')
     expect(replaced.status).toBe('COMPLETED')
     expect(await database.requirement_version.where('projectId').equals(projectId).count()).toBe(3)
@@ -83,8 +83,8 @@ describe('PrdRepository', () => {
   it('listByProject sorts by order', async () => {
     await repository.initializeSections(projectId)
     const sections = await repository.listByProject(projectId)
-    expect(sections).toHaveLength(17)
-    expect(sections.map(s => s.order)).toEqual(Array.from({ length: 17 }, (_, i) => i + 1))
+    expect(sections).toHaveLength(12)
+    expect(sections.map(s => s.order)).toEqual(Array.from({ length: 12 }, (_, i) => i + 1))
   })
 
   it('getByKey returns undefined for unknown key', async () => {

@@ -29,7 +29,7 @@ test.describe('项目创建与需求澄清闭环', () => {
 
     // Should navigate to analysis view
     await page.waitForSelector('[data-testid="analysis-view"]', { timeout: 15000 })
-    await expect(page.locator('[data-testid="analysis-view"] h1')).toContainText('从想法到可确认的需求')
+    await expect(page.locator('[data-testid="analysis-view"] h1')).toContainText('从想法到可确认的 PRD')
 
     // After analysis, should see requirement summary and questions
     await page.waitForTimeout(1000)

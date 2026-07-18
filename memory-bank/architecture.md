@@ -1,6 +1,6 @@
 # Prompt2PRD Architecture
 
-> 当前状态：架构已确认，阶段一至阶段八已完成，阶段九步骤 50～54 已完成。取消与迟到结果保护、超时/重试/心跳、输入/渲染/日志安全、额度展示，以及核心端到端夹具和创建澄清、冲突历史、架构流程图 PRD、本地多项目回收站闭环均已实现并验证。下一步执行步骤 55（完成 JAR 与 Docker 交付）。产品事实以 `memory-bank/design-doc.md` 为准，实施顺序以 `memory-bank/implementation-plan.md` 为准。
+> 当前状态：架构已确认，阶段一至阶段八已完成，阶段九步骤 50～54 已完成。当前主流程重构为“需求输入 → AI澄清 → 需求结果 → PRD文档”；架构建议和流程图保留为折叠的可选工具，不影响需求完整度或 PRD 生成。首次 AI 解析成功后即可生成当前 PRD 草稿，100% 仅表示 AI 认为关键信息足够。下一步执行步骤 55（完成 JAR 与 Docker 交付）。产品事实以 `memory-bank/design-doc.md` 为准，实施顺序以 `memory-bank/implementation-plan.md` 为准。
 
 ## 交付形态
 
@@ -31,9 +31,9 @@
 
 - `App.vue` 只承载 `RouterView`；`router/index.ts` 提供可注入 History 的路由工厂，当前包含项目首页 `/`、新建项目 `/projects/new` 和项目入口 `/projects/:projectId` 三条路由。
 - `AppShell.vue` 负责稳定的全局左导航和主画布插槽；全部项目、已归档和回收站会发出生命周期导航事件并保持唯一当前项，模型设置已启用并进入独立的 `/settings/model` 页面。
-- 路由已更新为嵌套结构：`/` 项目首页、`/projects/new` 新建项目、`/projects/:projectId` 项目工作台（含 6 个子路由 `overview`、`questions`、`requirements`、`architecture`、`flowchart`、`prd`），默认重定向至 `overview`。
-- `ProjectWorkspace.vue` 是项目工作台的顶层布局：包裹 `AppShell`，自行从 IndexedDB 加载项目、分析状态和已确认架构，用同一状态源驱动顶部进度、生成 PRD 条件和辅助面板提醒。布局由 `ProjectNavigation`（左）、可手动调宽的项目模块列和居中的 `<router-view>` 主画布组成；辅助面板默认收起，有待确认事项或冲突时才显示带数量红点的抽屉入口，展开后覆盖在右侧，空内容时不占用主画布宽度。
-- `ProjectNavigation.vue` 提供六个模块的二级导航，高亮当前活跃模块并发射 `navigate` 事件；`ProjectHeader.vue` 展示项目名称、统一的四段进度（需求澄清、需求确认、架构选择、PRD生成）、总体进度、模型、保存状态和"生成 PRD"按钮。生成入口由工作台顶层根据已确认正式需求、待确认需求、待回答问题、已确认架构、核心冲突和 80% 完整度统一 gating；无正式需求时优先提示补充并确认需求，不再只显示 80% 门槛。
+- 路由已更新为嵌套结构：`/` 项目首页、`/projects/new` 新建项目、`/projects/:projectId` 项目工作台（含 6 个兼容子路由 `overview`、`questions`、`requirements`、`architecture`、`flowchart`、`prd`），默认重定向至 `overview`。其中主导航只展示 `overview/questions/requirements/prd`，`architecture/flowchart` 作为“更多工具”折叠入口保留。
+- `ProjectWorkspace.vue` 是项目工作台的顶层布局：包裹 `AppShell`，自行从 IndexedDB 加载项目和分析状态，用同一状态源驱动顶部步骤条、生成 PRD 条件和辅助面板提醒。布局由 `ProjectNavigation`（左）、可手动调宽的项目模块列和居中的 `<router-view>` 主画布组成；辅助面板默认收起，有待确认事项或冲突时才显示带数量红点的抽屉入口，展开后覆盖在右侧，空内容时不占用主画布宽度。
+- `ProjectNavigation.vue` 将一级主流程收缩为“需求输入、AI澄清、需求结果、PRD文档”，并把“流程图、架构建议”放入默认折叠的“更多工具”。`ProjectHeader.vue` 展示项目名称、需求完整度、已确认/待确认/待分析/冲突计数、模型、保存状态和"生成 PRD"按钮，不再显示流程步骤完成度。生成入口在首次 AI 解析产生真实需求、问题、回答、冲突或待分析项后即可启用；待确认、待分析、冲突、架构确认、流程图和 100% 完整度均不阻塞生成，只影响提示文案和 PRD 内容状态。
 - `ProjectHomeView.vue` 通过可注入的 `ProjectHomeRepository` 加载真实 IndexedDB 摘要，管理活动/归档/回收站视图、请求迟到保护、操作忙碌状态以及读取/写入失败反馈；失败不会把已有项目伪装为空列表。
 - `ProjectList.vue` 只负责网格布局和事件转发，`ProjectCard.vue` 展示名称、阶段、完整度、待确认数与更新时间，并把重命名、复制、归档、回收站、恢复和永久删除收进卡片菜单；永久删除仍需浏览器确认。
 - `ProjectEmptyState.vue` 为三种生命周期视图提供不同空状态，只有活动视图显示创建入口；首页顶部与空状态两个入口均进入同一个新建项目页，源码不创建示例项目或示例需求。
@@ -41,9 +41,9 @@
 - `RequirementFileUpload.vue` 负责 `.md`/`.txt` 文件选择、首次隐私确认、只读文本预览、片段准备进度与取消；只有全部片段完成本地顺序处理后才向新建项目页发出已确认文件，清除文件会恢复纯文字创建规则。
 - `fileParser.ts` 使用严格 UTF-8 解码，拒绝错误扩展名、超过 2 MiB、无法解码和空白文件；统一换行后优先沿 Markdown 标题和自然段边界分块，超长语义块按 Unicode 码点硬拆，单片最多 32,000 字符且所有片段重新连接后与解析全文一致。
 - `NewProjectView.vue` 在 Repository 创建成功后才跳转到带项目 UUID 的入口页，IndexedDB 失败时保留表单并提示未保存；`overview` 子路由现由 `AnalysisView.vue` 承载真实初始分析，其他未实现模块继续使用占位页。
-- `questions` 子路由由 `QuestionWizardView.vue` 承载 AI 需求访谈：按当前最高优先级批次展示至多 10 个问题，页面明确说明 AI 已读取初始需求，用户回答后会继续追问或整理为需求卡片。页面展示 12 项"最终 PRD 至少覆盖"清单，并根据当前问题的 `targetField` 前缀或需求维度高亮本轮正在补齐的内容。`QuestionBatch/QuestionCard/AnswerForm` 分别负责本轮追问进度、问题说明和输入控件；主按钮为"提交回答，让 AI 继续追问"，至少回答 1 题后才可提交，仍保留整轮跳过入口。回答先本地提交，再携带当前结构化状态调用下一轮分析；当前批次结束且没有待回答问题时，页面直接提供"查看已整理需求"和"补充想法让 AI 继续追问"两个下一步操作。新生成问题必须带真实选项；旧版本遗留的 `TEXT/options=[]` 问题在前端显示为临时可选答案，并提示重新分析后会生成正式选项。若架构已确认但仍有待回答问题，问题向导只提示当前继续补齐 PRD 业务细节，不再把用户引回架构选择。
-- `overview` 子路由由 `AnalysisView.vue` 承载：恢复或分析后展示已确认需求、待确认内容、当前冲突和下一步主操作，避免只显示进度条与卡片而缺少行动指引；概览统计和 `RequirementSummary.vue` 只展示正式需求，排除 `metadata.kind = ARCHITECTURE_CANDIDATE` 的架构候选草稿。概览页与工作台顶部共用架构确认判断来源，读取 `ArchitectureRepository.selected(projectId)` 后决定下一步；正式需求为 0 时主操作改为“重新分析需求”，已确认架构后进入流程图或 PRD，不会继续引导到已完成的架构页；初始 AI 分析失败且尚未生成问题时，页面明确提示“AI 还没有生成澄清问题”，并按模型错误类型引导用户检查模型设置。
-- `requirements` 子路由由 `RequirementsView.vue` 承载：中央区域显示可编辑/可锁定需求卡片，页面辅助列显示冲突、AI 假设和版本历史；未解决核心冲突持续显示阻塞提示。需求卡片使用中文类型/状态标签，并把候选元数据或 `key: value` 正文拆成前端、后端、数据存储、AI 接入、测试、部署等字段，避免直接展示内部枚举和模型原始输出。正式需求过滤与结构化字段展示统一由 `requirementDisplay.ts` 提供；正式需求为 0 时显示独立空状态和“回到需求概览”主按钮，而不是空白卡片区。
+- `questions` 子路由由 `QuestionWizardView.vue` 承载 AI 需求访谈：页面每次只展示当前最高优先级的一个问题，支持选项、自定义补充、采用 AI 建议、跳过、提交并继续和暂时生成 PRD。采用 AI 建议只预填推荐选项，用户提交后才写入已确认；未提交前仍是 AI 建议。当前问题提交成功后停留在 AI 澄清页并请求下一条重要问题；没有新问题时显示“关键信息已经足够，可以生成PRD”，同时允许继续补充细节。补充想法在当前页展开输入区并复用 `/api/analysis/answers` 生成下一轮问题，失败时保留输入且不跳转。页面展示 12 项 PRD 主文档覆盖清单，接口设计、数据库表设计、流程图和架构建议不作为最低必答项。
+- `overview` 子路由由 `AnalysisView.vue` 承载需求输入与首次解析：恢复或分析后展示已确认需求、待确认/待分析内容、当前冲突和唯一下一步主操作；正式需求为 0 时主操作为“重新分析需求”，存在待回答问题时进入 AI 澄清，否则首次解析完成后可直接进入 PRD 文档。
+- `requirements` 子路由由 `RequirementsView.vue` 承载需求结果：实时展示 AI 整理出的结构化内容，不要求完成全部澄清。中央区域显示可编辑/可锁定需求卡片，页面辅助列显示冲突、AI 假设和版本历史；未解决核心冲突只作为状态提示，不作为 PRD 生成关卡。需求卡片使用中文类型/状态/来源标签，并提供编辑、确认、删除和“生成流程图”等可选操作；流程图入口只从用户选中的复杂需求进入，不再默认生成整个项目流程图。正式需求过滤与结构化字段展示统一由 `requirementDisplay.ts` 提供；正式需求为 0 时显示独立空状态和“回到需求输入”主按钮。
 - `styles/tokens.css` 是当前前端视觉变量来源，严格使用设计文档的八个颜色 Token；主按钮和当前导航使用 `#c7eb64` 背景与 `#262b25` 文字，普通辅助文字使用 `#626d72`。
 - MVP 当前只声明浅色 `color-scheme`，不提供深色模式或主题开关。界面使用结构化间距、细边框和轻阴影，不依赖外部字体或装饰图片。
 - 桌面工作台基线为可调宽全局左栏、可调宽项目模块栏和弹性主画布，两个拖拽宽度会保存在当前浏览器 `localStorage`；最小页面宽度 960 像素，真实项目卡片在 1280×800 验收时无横向溢出。
@@ -65,7 +65,7 @@
 - Vitest 使用 `fake-indexeddb` 为每个测试创建独立数据库，已验证首次打开、关闭后重开、版本号、Repository 事务行为及项目首页操作调用链。
 - AI 候选补丁由后端完成校验、确定性合并、冲突检测和完整度计算；后端不保存项目。
 - 用户确认、锁定、冲突解决和手动编辑由前端确定性处理并写入 IndexedDB。
-- 需求状态为 `INFERRED`、`PENDING`、`CONFIRMED`、`CONFLICTED`；锁定使用独立 `locked` 字段。
+- 需求状态为 `UNANALYZED`、`INFERRED`、`PENDING`、`CONFIRMED`、`SKIPPED`、`NOT_APPLICABLE`、`CONFLICTED`；AI 推断不会自动变为已确认，只有用户明确选择、输入或接受并提交后才成为 `CONFIRMED`。锁定使用独立 `locked` 字段。
 - ID 使用 UUID，持久化时间使用 UTC ISO-8601；版本保存完整快照和字段级摘要，MVP 不自动清理。
 - `db/repositories/requirementRepository.ts` 提供需求项的按 ID 读取、按项目列表、无版本单条更新和事务性批量保存。`save()` 在单个 Dexie 事务中完成：替换全部需求项、捕获项目/需求/问题/答案/冲突完整快照、创建版本摘要记录和字段级变更记录；任何写入失败都会回滚整个事务，不留部分数据。
 - `updateRequirement()` 只写入 `requirement_item` 表且不创建版本，用于编辑过程中的草稿保存；连续多次调用不会生成历史版本，版本仅在显式调用 `save()` 时创建。
@@ -77,13 +77,13 @@
 
 ## 分析领域与应用边界
 
-- `analysis/domain` 使用 Java record 与枚举镜像前端项目摘要、需求项、澄清问题与答案、冲突和完整度契约；`contracts/analysis-state.sample.json` 是前后端共同解析的契约样例。需求状态仅为 `INFERRED/PENDING/CONFIRMED/CONFLICTED`，只有确认项允许锁定。
-- `CompletenessCalculator` 按十个固定维度权重计算：确认 100%、推测 40%、待确认与冲突 0%；缺口和未回答问题进入分母，不适用维度重归一化，未解决核心冲突使对应维度最高 50 分。
-- `QuestionSelector` 使用业务影响 40%、信息缺失 30%、依赖数量 20%、风险 10% 的固定公式；以标准化维度、目标字段、稳定语义键为主键，再以标准化文本精确去重，最多选择 10 个问题，高价值不足时允许少于 5 个。同分排序会优先保留交易、权限、状态，以及页面、接口、数据、验收、非功能、风险等 PRD 交付必需问题。
+- `analysis/domain` 使用 Java record 与枚举镜像前端项目摘要、需求项、澄清问题与答案、冲突和完整度契约；`contracts/analysis-state.sample.json` 是前后端共同解析的契约样例。需求状态镜像前端 7 类状态，只有确认项允许锁定。
+- `CompletenessCalculator` 按十个固定维度权重计算：确认 100%、推测 40%、未分析、待确认、已跳过与冲突 0%；缺口和未回答问题进入分母，不适用维度从分母移除并重归一化，未解决核心冲突使对应维度最高 50 分。完整度是关键需求覆盖度，不是页面流程进度。
+- `QuestionSelector` 使用业务影响 40%、信息缺失 30%、依赖数量 20%、风险 10% 的固定公式；以标准化维度、目标字段、稳定语义键为主键，再以标准化文本精确去重，最多选择 10 个问题，高价值不足时允许少于 5 个。同分排序会优先保留交易、权限、状态，以及页面、数据、验收、非功能、风险等 PRD 交付必需问题；接口、架构和流程图相关问题只在业务复杂度确实需要时作为补充。
 - `ValidatedRequirementPatch` 是模型候选补丁进入 `RequirementStateMerger` 的结构校验门；合并器执行重复过滤、来源优先级、锁定保护、矛盾冲突创建和完整度重算，采用 copy-on-write，失败不改变输入状态，且不依赖数据库或 Repository。
 - `AnswerPolicy` 将单题/整轮跳过保留为未确认问题；“不知道”生成带影响说明的 `AI_RECOMMENDATION/PENDING` 需求，接受后才转为 `USER_ANSWER/CONFIRMED`，拒绝后继续保持待确认，因此未确认路径均不增加完整度。
-- `AnalysisContextBuilder` 只向后续分析器提供项目摘要、当前需求、锁定需求、最新一轮问答、信息缺口、项目语言和输出 Schema；即使输入长历史，也不会把旧轮次正文拼入模型上下文。
-- `RequirementAnalyzer` 通过 `ModelGateway.generateStructured()` 获取完整 `AnalysisModelOutput`，先执行 Bean Validation、枚举和状态来源约束，再转换为候选补丁与问题；正式状态仍由 `RequirementStateMerger`、`QuestionSelector` 和 `CompletenessCalculator` 决定，模型不能直接创建 `CONFIRMED` 内容。分析提示包含 12 项 PRD 覆盖清单：产品背景与目标、用户角色与使用场景、功能范围与优先级、核心业务流程、用户故事、业务规则与异常场景、页面清单与页面状态、数据实体与字段、接口需求、验收标准、非功能需求，以及假设、风险与待确认事项；模型必须围绕这些适用项继续追问或明确标记为已跳过/待确认。模型生成的澄清问题只允许 `SINGLE_SELECT` 或 `MULTI_SELECT`，且每题至少两个具体选项；开放式回答只作为前端自定义答案或补充说明处理，不再由模型输出 `TEXT` 问题。需求类型已补充 `NON_FUNCTIONAL_REQUIREMENT` 和 `RISK_OPEN_ITEM`，前端卡片使用中文标签展示。
+- `AnalysisContextBuilder` 向后续分析器提供项目摘要、当前需求、锁定需求、历史问答、信息缺口、项目语言和输出 Schema；补充追问时 `/api/analysis/answers` 同时传入原始项目想法和本轮补充想法，模型据此继续生成下一轮问题。
+- `RequirementAnalyzer` 通过 `ModelGateway.generateStructured()` 获取完整 `AnalysisModelOutput`，先执行 Bean Validation、枚举和状态来源约束，再转换为候选补丁与问题；正式状态仍由 `RequirementStateMerger`、`QuestionSelector` 和 `CompletenessCalculator` 决定，模型不能直接创建 `CONFIRMED` 内容。分析提示要求先解析用户原始输入和导入 PRD 中已有信息，再围绕 12 项 PRD 主文档覆盖清单继续追问：产品背景与目标、目标用户与使用场景、产品范围、功能模块与优先级、用户故事、业务规则、异常场景、页面清单与页面状态、数据需求、验收标准、非功能需求、风险/假设/待确认事项。接口设计、数据库表设计、架构建议和流程图不作为主流程最低覆盖项。澄清问题支持单选、多选、自定义输入、单选加自定义输入和多选加自定义输入；页面每次只展示其中一题。
 - `AnalysisOrchestrator` 把一次分析组织为 Reactor `Flux<StreamEvent>`，发送开始、进度、领域增量与单一终态；空闲 5 秒发送进度心跳，订阅取消会触发 `ModelCancellationSignal`。`AnalysisController` 的两个 POST SSE 入口共享相同编排边界，并在模型调用前执行额度策略。
 
 ## 架构推荐与确认边界
@@ -92,29 +92,29 @@
 - `ArchitectureRecommender` 使用确定性模板和七维 1～5 分评分生成三个可比较候选；候选固定包含前端、后端、存储、鉴权、文件、AI、部署、测试、职责、优缺点、限制和未选择原因。Vue/Java/Spring Boot、个人维护、单体 Docker 样例会优先推荐 Vue + Spring Boot，同时保留全栈 TypeScript 备选。
 - `POST /api/architecture/recommend` 是无状态 JSON 接口，只校验约束并返回候选与待确认字段；后端不保存项目或替用户确认架构，也不消耗模型 Key。
 - `TechnicalConstraintsForm.vue` 支持完整或部分约束、自定义技术和敏感数据选择；`ArchitectureComparison.vue` 默认突出唯一推荐方案、推荐原因和采用按钮，详细比较通过"查看详细比较"展开后再展示 2～3 个候选、技术职责和七个评分维度；用户仍可接受推荐、选择备选或基于任一候选手动修改。
-- 架构候选复用现有 `requirement_item` 仓库，以 `TECHNICAL_CONSTRAINT/PENDING` 和 `metadata.kind = ARCHITECTURE_CANDIDATE` 保存草稿，不新增 IndexedDB 对象仓库。未选择候选不会计入完整度或待确认数。
+- 架构候选复用现有 `requirement_item` 仓库，以 `TECHNICAL_CONSTRAINT/PENDING` 和 `metadata.kind = ARCHITECTURE_CANDIDATE` 保存草稿，不新增 IndexedDB 对象仓库。未选择候选不会计入完整度、待确认数或 PRD 生成条件。
 - `ArchitectureRepository.confirm()` 在单个 Dexie 事务中撤销旧主架构、写入唯一 `TECHNICAL_CONSTRAINT/CONFIRMED` 主架构、更新项目阶段与完整度快照，并创建完整版本和字段变更记录；确认入口会先把 Vue 响应式候选归一化为普通 JSON 对象，再执行 `structuredClone` 和 IndexedDB 写入；切换确认可由既有版本恢复边界追踪。
-- 每次本地确认返回统一形状的 `architecture_confirmed` 事件，携带 UUID 请求 ID、事件 ID 1、架构 ID 和 UTC 时间；后续 PRD 生成只应读取当前唯一确认项，其他候选保持备选草稿。
+- 每次本地确认返回统一形状的 `architecture_confirmed` 事件，携带 UUID 请求 ID、事件 ID 1、架构 ID 和 UTC 时间；当前架构建议是 PRD 生成后的可选技术方案附件，PRD 主文档可读取其摘要作为可选上下文，但不得因为缺少、重复或未确认架构而降级或阻塞。
 
 ## 流程图生成与持久化边界
 
-- `POST /api/generation/flowchart` 通过唯一 `ModelGateway.generateStructured()` 边界生成主流程与异常流程；模型输入只包含 `CONFIRMED` 需求，没有确认事实时不发起模型调用并返回待补充提示。
+- `POST /api/generation/flowchart` 通过唯一 `ModelGateway.generateStructured()` 边界生成业务流程与异常流程；模型输入只包含用户在需求卡片上选中的 `CONFIRMED` 复杂需求及其必要上下文，没有选中需求或没有确认事实时不发起模型调用并返回待补充提示。
 - 异常流程必须引用已确认且类型为 `EXCEPTION_SCENARIO` 的需求 ID；无已确认异常事实时不接受模型补写的责任规则。主图和每张异常图独立转换为成功或失败结果，单图失败不会丢弃其他有效图。
-- `FlowchartView.vue` 支持全部生成、单图重新生成、严格 Mermaid 渲染、查看与复制源码；每张返回图先通过 `mermaid.parse()` 独立校验，已存在稳定键的图只有在新结果有效且用户确认后才替换。
+- `FlowchartView.vue` 支持从需求确认卡片携带 `requirementId` 进入、为该需求生成流程图、单图重新生成、严格 Mermaid 渲染、查看与复制源码；每张返回图先通过 `mermaid.parse()` 独立校验，已存在稳定键的图只有在新结果有效且用户确认后才替换。
 - `FlowchartRepository` 使用稳定图键保存主流程和异常流程；批量生成只提交校验通过的图，保留失败兄弟图的错误信息。项目复制、永久删除、版本快照与版本恢复均已覆盖 `flowchart` 仓库。
-- 流程图路由使用真实 `FlowchartView`，工作台右侧辅助面板在该宽画布页面默认收起。
+- 流程图路由使用真实 `FlowchartView`，但位于“更多工具”下，工作台右侧辅助面板在该宽画布页面默认收起；简单列表、详情查看等需求不强制画图。
 
 ## PRD 定义、生成、编辑与流式边界
 
-- `PrdDefinition` 固定设计文档要求的 17 个有序章节，其中第 8 章为“技术决策摘要与工程约束”；并为需求、用户故事、业务规则、接口、页面、验收和实施阶段提供确定性编号前缀。追溯检查要求每项核心功能至少关联一个用户故事、业务规则和验收条件。确定性指令只使用 `MUST`、`SHOULD` 和 `MUST NOT`。
-- `PrdGenerator.plan()` 只把非架构类 `CONFIRMED` 需求和唯一 `metadata.kind = ARCHITECTURE_CANDIDATE` 的确认架构摘要送入章节提示词；确认架构只暴露 ID、标题和约束正文，不携带候选评分、备选理由或比较矩阵。完整度低于 80、没有或存在多个确认主架构、存在未解决核心冲突、或调用方仍提供缺失项时，整份计划固定为 `DRAFT` 并列出原因；生成过程不修改输入需求状态。
+- `PrdDefinition` 固定当前主流程要求的 12 个有序章节：产品背景与目标、目标用户与使用场景、产品范围、功能模块与优先级、用户故事、业务规则、异常场景、页面清单与页面状态、数据需求、验收标准、非功能需求、风险/假设与待确认事项；并为需求、用户故事、业务规则、页面和验收提供确定性编号前缀。追溯检查要求每项核心功能至少关联一个用户故事、业务规则和验收条件。确定性指令只使用 `MUST`、`SHOULD` 和 `MUST NOT`。旧章节键通过别名映射读取，避免既有项目章节完全失效。
+- `PrdGenerator.plan()` 根据当前已经得到的非架构需求信息生成章节提示词，不要求完整度达到 100%，也不要求需求确认、架构选择或流程图完成。确认内容正常写入；`AI_INFERENCE/AI_RECOMMENDATION` 明确标记为“AI推断，待确认”；`PENDING` 标记“待确认”；`UNANALYZED` 或完全缺失章节标记“待分析”；`SKIPPED` 标记“用户暂未提供”。提示词禁止为了填满章节而补编登录、支付、权限、数据库、部署、接口、架构或流程图等用户未提供的信息。生成过程不修改输入需求状态。
 - 每个章节通过 `ModelGateway.streamText()` 独立生成。`PrdStreamOrchestrator` 顺序发送 `section_started`、有序 `section_delta`、`section_completed` 或 `section_failed`；单章节失败不丢弃已完成章节，也不阻止后续章节，总任务只产生一个完成、失败或取消终态。
-- `POST /api/generation/prd` 生成全部 17 章并按一次完整 PRD 操作执行额度策略；`POST /api/generation/prd/sections/{sectionId}` 只生成一个稳定章节键并仅执行频率与真实上游调用预算检查。连接取消会向共享模型取消信号传播。
+- `POST /api/generation/prd` 生成全部 12 章并按一次完整 PRD 操作执行额度策略；`POST /api/generation/prd/sections/{sectionId}` 只生成一个稳定章节键并仅执行频率与真实上游调用预算检查。连接取消会向共享模型取消信号传播。
 - 前端 `PrdView.vue` 组合章节状态统计、加宽章节列表、当前章节工具栏、编辑/预览切换和全部/单章生成；`PrdEditor.vue` 支持 Markdown 编辑和 2 秒失焦自动保存并填满主编辑区；`PrdPreview.vue` 使用 `markdown-it({ html: false })` 安全渲染，禁止原始 HTML。章节列表显示草稿、生成中、已完成和失败状态，避免混淆尚未生成、生成失败和已有内容。
-- `PrdRepository` 通过 IndexedDB 持久化 17 个章节，支持初始化、内容更新、状态变更、锁定切换、显式保存和生成内容写入；保存操作在事务中同步创建版本记录并推进项目阶段。锁定章节的内容更新和重新生成均被拒绝。
+- `PrdRepository` 通过 IndexedDB 持久化 12 个主文档章节，支持初始化、内容更新、状态变更、锁定切换、显式保存和生成内容写入；保存操作在事务中同步创建版本记录并推进项目阶段。锁定章节的内容更新和重新生成均被拒绝，旧章节键读取时映射到新章节键。
 - `PrdRegenerationDialog.vue` 在重新生成前展示旧版备份提示和人工内容覆盖警告，要求用户显式勾选确认；`PrdRepository.saveBeforeRegeneration()` 在重生成前创建历史版本以便恢复。
 - 后端 `PrdChangeAnalyzer` 在保存或退出编辑模式时分析片段差异，提取编号事实和数值变化匹配已确认需求；唯一匹配自动同步，多匹配或锁定目标生成待确认变更或冲突警告。对应前端导出 `analyzePrdChanges()`。
-- 后端 `PrdValidator` 验证 17 章节完整性、稳定编号、交叉引用、技术决策摘要、验收 Given/When/Then 和实施阶段编号；空技术摘要不再阻断草稿校验，但详细架构设计、评分比较或备选架构混入最终文档时产生警告。对应前端 `exportPrdMarkdown()` 合并已完成/草稿章节为 Markdown 文件，`sanitizeFileName()` 清理非法文件名字符，`downloadPrdFile()` 触发浏览器下载。
+- 后端 `PrdValidator` 验证 12 章节完整性、稳定编号、交叉引用和验收 Given/When/Then；详细架构设计、接口清单、数据库表设计、评分比较或备选架构混入最终主文档时产生警告。对应前端 `exportPrdMarkdown()` 合并已完成/草稿章节为 Markdown 文件，`sanitizeFileName()` 清理非法文件名字符，`downloadPrdFile()` 触发浏览器下载。
 - 后端继续无状态，不保存 PRD 或反向修改项目。前端 PRD 路由已从占位页切换到 `PrdView`，阶段七全部完成。
 
 ## AI 与流式边界

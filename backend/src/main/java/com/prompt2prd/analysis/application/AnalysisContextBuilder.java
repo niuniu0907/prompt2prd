@@ -22,8 +22,10 @@ public final class AnalysisContextBuilder {
 
         List<QuestionAnswerTurn> history = answerHistory == null
                 ? List.of()
-                : List.copyOf(answerHistory);
-        List<QuestionAnswerTurn> recentAnswers = latestBatch(history);
+                : answerHistory.stream()
+                        .sorted(Comparator.comparing(QuestionAnswerTurn::answeredAt)
+                                .thenComparing(QuestionAnswerTurn::questionId))
+                        .toList();
         List<String> gaps = missingInformation == null
                 ? List.of()
                 : missingInformation.stream()
@@ -40,26 +42,11 @@ public final class AnalysisContextBuilder {
                 state.project(),
                 currentRequirements,
                 lockedRequirements,
-                recentAnswers,
+                history,
                 gaps,
                 state.project().language(),
                 outputSchema.trim()
         );
-    }
-
-    private List<QuestionAnswerTurn> latestBatch(List<QuestionAnswerTurn> history) {
-        if (history.isEmpty()) {
-            return List.of();
-        }
-        QuestionAnswerTurn latest = history.stream()
-                .max(Comparator.comparing(QuestionAnswerTurn::answeredAt)
-                        .thenComparing(QuestionAnswerTurn::questionId))
-                .orElseThrow();
-        return history.stream()
-                .filter(turn -> turn.batchId().equals(latest.batchId()))
-                .sorted(Comparator.comparing(QuestionAnswerTurn::answeredAt)
-                        .thenComparing(QuestionAnswerTurn::questionId))
-                .toList();
     }
 
     private static void requireText(String value, String name) {
@@ -89,7 +76,7 @@ public final class AnalysisContextBuilder {
             ProjectSummary project,
             List<RequirementItem> currentRequirements,
             List<RequirementItem> lockedRequirements,
-            List<QuestionAnswerTurn> recentAnswers,
+            List<QuestionAnswerTurn> answerHistory,
             List<String> missingInformation,
             String language,
             String outputSchema) {
@@ -97,7 +84,7 @@ public final class AnalysisContextBuilder {
             Objects.requireNonNull(project, "project must not be null");
             currentRequirements = List.copyOf(currentRequirements);
             lockedRequirements = List.copyOf(lockedRequirements);
-            recentAnswers = List.copyOf(recentAnswers);
+            answerHistory = List.copyOf(answerHistory);
             missingInformation = List.copyOf(missingInformation);
             requireText(language, "language");
             requireText(outputSchema, "outputSchema");

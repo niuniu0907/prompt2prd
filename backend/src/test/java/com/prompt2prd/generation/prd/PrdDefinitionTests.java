@@ -10,22 +10,20 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 class PrdDefinitionTests {
 
     @Test
-    void definesAllSeventeenOrderedUniqueSections() {
-        assertThat(PrdDefinition.sections()).hasSize(17);
+    void definesTwelveOrderedUniquePrdSections() {
+        assertThat(PrdDefinition.sections()).hasSize(12);
         assertThat(PrdDefinition.sections()).extracting(PrdDefinition.Section::order)
-                .containsExactly(1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17);
+                .containsExactly(1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12);
         assertThat(PrdDefinition.sections()).extracting(section -> section.key().wireName())
                 .doesNotHaveDuplicates()
-                .contains("coding-agent-guide", "apis", "acceptance", "open-items");
-        assertThat(PrdDefinition.requireSection("architecture").title())
-                .isEqualTo("技术决策摘要与工程约束");
+                .contains("product-background-goals", "product-scope", "acceptance-criteria", "risks-assumptions-open-items")
+                .doesNotContain("architecture", "apis");
         assertThat(PrdDefinition.requireSection("pages").title())
                 .isEqualTo("页面清单与页面状态");
         assertThat(PrdDefinition.sections()).extracting(PrdDefinition.Section::title)
-                .anyMatch(title -> title.contains("产品背景"))
+                .anyMatch(title -> title.contains("目标"))
                 .anyMatch(title -> title.contains("用户故事"))
                 .anyMatch(title -> title.contains("业务规则"))
-                .anyMatch(title -> title.contains("接口契约"))
                 .anyMatch(title -> title.contains("非功能需求"))
                 .anyMatch(title -> title.contains("待确认事项"));
     }

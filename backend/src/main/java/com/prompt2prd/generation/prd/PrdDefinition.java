@@ -10,23 +10,18 @@ import java.util.Set;
 public final class PrdDefinition {
 
     private static final List<Section> SECTIONS = List.of(
-            section(SectionKey.CODING_AGENT_GUIDE, "Coding Agent 使用说明", 1),
-            section(SectionKey.PRODUCT_CONTEXT, "产品背景、目标与非目标", 2),
-            section(SectionKey.ROLES_PERMISSIONS, "用户角色与权限", 3),
-            section(SectionKey.FEATURES_PRIORITIES, "功能模块及优先级", 4),
-            section(SectionKey.USER_STORIES, "用户故事与功能摘要", 5),
-            section(SectionKey.FLOWS_STATE_MACHINE, "核心业务流程与状态机", 6),
-            section(SectionKey.RULES_EXCEPTIONS, "业务规则和异常场景", 7),
-            section(SectionKey.ARCHITECTURE, "技术决策摘要与工程约束", 8),
-            section(SectionKey.DATA_MODEL, "数据实体、字段、关系和状态", 9),
-            section(SectionKey.PAGES, "页面清单与页面状态", 10),
-            section(SectionKey.APIS, "接口契约、请求响应示例和错误码", 11),
-            section(SectionKey.NON_FUNCTIONAL, "安全、性能和其他非功能需求", 12),
-            section(SectionKey.ACCEPTANCE, "普通验收规则和 Given/When/Then 场景", 13),
-            section(SectionKey.IMPLEMENTATION_PHASES, "分阶段实施计划", 14),
-            section(SectionKey.TEST_STRATEGY, "测试策略与关键测试用例", 15),
-            section(SectionKey.PROHIBITIONS, "明确禁止事项", 16),
-            section(SectionKey.OPEN_ITEMS, "AI 假设、待确认事项和已知限制", 17));
+            section(SectionKey.PRODUCT_BACKGROUND_GOALS, "产品背景与目标", 1),
+            section(SectionKey.TARGET_USERS_SCENARIOS, "目标用户与使用场景", 2),
+            section(SectionKey.PRODUCT_SCOPE, "产品范围", 3),
+            section(SectionKey.FEATURE_MODULES_PRIORITY, "功能模块与优先级", 4),
+            section(SectionKey.USER_STORIES, "用户故事", 5),
+            section(SectionKey.BUSINESS_RULES, "业务规则", 6),
+            section(SectionKey.EXCEPTION_SCENARIOS, "异常场景", 7),
+            section(SectionKey.PAGE_LIST_STATES, "页面清单与页面状态", 8),
+            section(SectionKey.DATA_REQUIREMENTS, "数据需求", 9),
+            section(SectionKey.ACCEPTANCE_CRITERIA, "验收标准", 10),
+            section(SectionKey.NON_FUNCTIONAL_REQUIREMENTS, "非功能需求", 11),
+            section(SectionKey.RISKS_ASSUMPTIONS_OPEN_ITEMS, "风险、假设与待确认事项", 12));
 
     private PrdDefinition() {
     }
@@ -39,10 +34,25 @@ public final class PrdDefinition {
         if (key == null || key.isBlank()) {
             throw new IllegalArgumentException("section key must not be blank");
         }
+        String normalizedKey = normalizeSectionKey(key.trim());
         return SECTIONS.stream()
-                .filter(section -> section.key().wireName().equals(key.trim()))
+                .filter(section -> section.key().wireName().equals(normalizedKey))
                 .findFirst()
                 .orElseThrow(() -> new IllegalArgumentException("Unknown PRD section: " + key));
+    }
+
+    private static String normalizeSectionKey(String key) {
+        return switch (key) {
+            case "product-goals" -> "product-background-goals";
+            case "user-roles" -> "target-users-scenarios";
+            case "feature-scope" -> "product-scope";
+            case "pages" -> "page-list-states";
+            case "data-needs" -> "data-requirements";
+            case "acceptance" -> "acceptance-criteria";
+            case "non-functional" -> "non-functional-requirements";
+            case "risks-open-items" -> "risks-assumptions-open-items";
+            default -> key;
+        };
     }
 
     public static String stableId(ArtifactType type, int sequence) {
@@ -89,14 +99,15 @@ public final class PrdDefinition {
     }
 
     public enum SectionKey {
-        CODING_AGENT_GUIDE("coding-agent-guide"), PRODUCT_CONTEXT("product-context"),
-        ROLES_PERMISSIONS("roles-permissions"), FEATURES_PRIORITIES("features-priorities"),
-        USER_STORIES("user-stories"), FLOWS_STATE_MACHINE("flows-state-machine"),
-        RULES_EXCEPTIONS("rules-exceptions"), ARCHITECTURE("architecture"),
-        DATA_MODEL("data-model"), PAGES("pages"), APIS("apis"),
-        NON_FUNCTIONAL("non-functional"), ACCEPTANCE("acceptance"),
-        IMPLEMENTATION_PHASES("implementation-phases"), TEST_STRATEGY("test-strategy"),
-        PROHIBITIONS("prohibitions"), OPEN_ITEMS("open-items");
+        PRODUCT_BACKGROUND_GOALS("product-background-goals"),
+        TARGET_USERS_SCENARIOS("target-users-scenarios"),
+        PRODUCT_SCOPE("product-scope"), FEATURE_MODULES_PRIORITY("feature-modules-priority"),
+        USER_STORIES("user-stories"),
+        BUSINESS_RULES("business-rules"), EXCEPTION_SCENARIOS("exception-scenarios"),
+        PAGE_LIST_STATES("page-list-states"), DATA_REQUIREMENTS("data-requirements"),
+        ACCEPTANCE_CRITERIA("acceptance-criteria"),
+        NON_FUNCTIONAL_REQUIREMENTS("non-functional-requirements"),
+        RISKS_ASSUMPTIONS_OPEN_ITEMS("risks-assumptions-open-items");
 
         private final String wireName;
 

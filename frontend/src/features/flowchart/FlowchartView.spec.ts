@@ -47,7 +47,11 @@ function state() {
       uploadedFileContent: null, supplementalPrompt: null, language: 'zh-CN', stage: 'FLOWCHART', status: 'ACTIVE',
       completeness: 80, userRenamed: false, archivedAt: null, deletedAt: null,
       createdAt: '2026-07-17T00:00:00.000Z', updatedAt: '2026-07-17T00:00:00.000Z' },
-    requirements: [], questions: [], answers: [], conflicts: [],
+    requirements: [{ id: sourceRequirementId, projectId, type: 'FEATURE', title: '订单支付',
+      content: '用户提交订单后支付', status: 'CONFIRMED', sourceType: 'USER_ANSWER',
+      sourceId: null, locked: false, metadata: {},
+      createdAt: '2026-07-17T00:00:00.000Z', updatedAt: '2026-07-17T00:00:00.000Z' }],
+    questions: [], answers: [], conflicts: [],
     completeness: { total: 80, dimensions: [], pendingCount: 0, hasCoreConflict: false },
   }
 }
@@ -62,9 +66,9 @@ function result(): FlowchartGenerationResult {
   }
 }
 
-async function mounted() {
+async function mounted(query: Record<string, string> = {}) {
   const wrapper = mount(FlowchartView, {
-    global: { provide: { [routeLocationKey as symbol]: { params: { projectId } } } },
+    global: { provide: { [routeLocationKey as symbol]: { params: { projectId }, query } } },
   })
   await flushPromises()
   return wrapper
@@ -87,7 +91,7 @@ describe('FlowchartView', () => {
   it('keeps valid diagrams when a sibling generation fails', async () => {
     mocks.generateFlowcharts.mockResolvedValue(result())
     mocks.listByProject.mockResolvedValueOnce([]).mockResolvedValueOnce([record])
-    const wrapper = await mounted()
+    const wrapper = await mounted({ requirementId: sourceRequirementId })
     await wrapper.find('.button-primary').trigger('click')
     await flushPromises()
 
@@ -99,7 +103,7 @@ describe('FlowchartView', () => {
 
   it('copies the exact Mermaid source', async () => {
     mocks.listByProject.mockResolvedValue([record])
-    const wrapper = await mounted()
+    const wrapper = await mounted({ requirementId: sourceRequirementId })
     await wrapper.find('.actions button').trigger('click')
     expect(mocks.writeText).toHaveBeenCalledWith(record.mermaid)
     expect(wrapper.text()).toContain('已复制')
@@ -110,7 +114,7 @@ describe('FlowchartView', () => {
     mocks.getByKey.mockResolvedValue(record)
     mocks.generateFlowcharts.mockResolvedValue(result())
     const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false)
-    const wrapper = await mounted()
+    const wrapper = await mounted({ requirementId: sourceRequirementId })
     await wrapper.findAll('.actions button')[1]!.trigger('click')
     await flushPromises()
 
@@ -125,11 +129,19 @@ describe('FlowchartView', () => {
     mocks.getByKey.mockResolvedValue(record)
     mocks.generateFlowcharts.mockResolvedValue(result())
     const confirm = vi.spyOn(window, 'confirm').mockReturnValue(true)
-    const wrapper = await mounted()
+    const wrapper = await mounted({ requirementId: sourceRequirementId })
     await wrapper.findAll('.actions button')[1]!.trigger('click')
     await flushPromises()
 
     expect(mocks.replaceAfterConfirmation).toHaveBeenCalledWith(projectId, expect.objectContaining({ mermaid: 'flowchart TD\nA-->C' }))
     confirm.mockRestore()
+  })
+
+  it('does not generate a whole-project flowchart without a selected requirement', async () => {
+    mocks.generateFlowcharts.mockResolvedValue(result())
+    const wrapper = await mounted()
+
+    expect(wrapper.find('.button-primary').attributes('disabled')).toBeDefined()
+    expect(wrapper.text()).toContain('请先在需求确认页选择')
   })
 })

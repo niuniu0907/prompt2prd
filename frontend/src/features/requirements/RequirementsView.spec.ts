@@ -51,7 +51,7 @@ describe('RequirementsView', () => {
     listVersions.mockResolvedValue([])
   })
 
-  it('guides users back to the overview when no formal requirements exist', async () => {
+  it('guides users back to requirement input when no formal requirements exist', async () => {
     loadState.mockResolvedValue({
       project,
       requirements: [architectureCandidate(project.id)],
@@ -68,12 +68,35 @@ describe('RequirementsView', () => {
     await flushPromises()
 
     expect(wrapper.text()).toContain('还没有可确认的产品需求')
-    expect(wrapper.text()).toContain('回到需求概览')
+    expect(wrapper.text()).toContain('回到需求输入')
     expect(wrapper.text()).not.toContain('Vue 3 + Spring Boot 单体')
 
     await wrapper.get('.empty-guide button').trigger('click')
     await flushPromises()
     expect(router.currentRoute.value.name).toBe('project-overview')
+  })
+
+  it('opens optional flowchart generation from a selected complex requirement card', async () => {
+    loadState.mockResolvedValue({
+      project: { ...project, stage: 'CLARIFYING', completeness: 88 },
+      requirements: [feature(project.id)],
+      questions: [],
+      answers: [],
+      conflicts: [],
+      completeness: { total: 88, dimensions: [], pendingCount: 0, hasCoreConflict: false },
+    } satisfies AnalysisState)
+    const router = createAppRouter(createMemoryHistory())
+    await router.push(`/projects/${project.id}/requirements`)
+    await router.isReady()
+
+    const wrapper = mount(RequirementsView, { global: { plugins: [router] } })
+    await flushPromises()
+
+    await wrapper.get('[data-testid="generate-flowchart"]').trigger('click')
+    await flushPromises()
+
+    expect(router.currentRoute.value.name).toBe('project-flowchart')
+    expect(router.currentRoute.value.query.requirementId).toBe('60000000-0000-4000-8000-000000000000')
   })
 })
 
@@ -92,6 +115,23 @@ function architectureCandidate(projectId: string): RequirementItem {
       kind: 'ARCHITECTURE_CANDIDATE',
       candidate: { id: '50000000-0000-4000-8000-000000000000', name: 'Vue 3 + Spring Boot 单体', stack: { frontend: 'Vue 3 + TypeScript' } },
     },
+    createdAt: project.createdAt,
+    updatedAt: project.updatedAt,
+  }
+}
+
+function feature(projectId: string): RequirementItem {
+  return {
+    id: '60000000-0000-4000-8000-000000000000',
+    projectId,
+    type: 'FEATURE',
+    title: '订单支付',
+    content: '用户提交订单后完成在线支付',
+    status: 'CONFIRMED',
+    sourceType: 'USER_ANSWER',
+    sourceId: null,
+    locked: false,
+    metadata: {},
     createdAt: project.createdAt,
     updatedAt: project.updatedAt,
   }

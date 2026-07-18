@@ -1,5 +1,9 @@
 import { defineConfig, devices } from '@playwright/test'
 
+const e2ePort = Number(process.env.E2E_PORT ?? 5173)
+const e2eHost = '127.0.0.1'
+const e2eBaseUrl = `http://${e2eHost}:${e2ePort}`
+
 process.env.NO_PROXY = ['127.0.0.1', 'localhost', process.env.NO_PROXY]
   .filter(Boolean)
   .join(',')
@@ -16,7 +20,7 @@ export default defineConfig({
   reporter: 'list',
 
   use: {
-    baseURL: 'http://127.0.0.1:5173',
+    baseURL: e2eBaseUrl,
     trace: 'on-first-retry',
     screenshot: 'only-on-failure',
   },
@@ -51,8 +55,8 @@ export default defineConfig({
   ],
 
   webServer: {
-    command: 'npx vite --host 127.0.0.1 --port 5173',
-    port: 5173,
+    command: `npx vite --host ${e2eHost} --port ${e2ePort}`,
+    port: e2ePort,
     reuseExistingServer: false,
     cwd: '.',
   },

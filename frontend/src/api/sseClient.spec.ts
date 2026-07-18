@@ -109,6 +109,26 @@ describe('POST SSE client', () => {
       retryable: false,
     })
   })
+
+  it('reads structured non-stream API errors instead of hiding them behind HTTP status', async () => {
+    await expect(consumePostSse({
+      url: '/api/analysis/answers',
+      body: {},
+      fetcher: async () => new Response(JSON.stringify({
+        code: 'BAD_REQUEST',
+        message: 'Request parameters are invalid. Check required fields and value formats.',
+        requestId: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
+        timestamp: '2026-07-18T07:40:00Z',
+      }), {
+        status: 400,
+        headers: { 'Content-Type': 'application/json' },
+      }),
+    })).rejects.toMatchObject({
+      code: 'BAD_REQUEST',
+      message: expect.stringContaining('请求参数无效'),
+      retryable: false,
+    })
+  })
 })
 
 function frame(

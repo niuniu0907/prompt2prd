@@ -14,6 +14,8 @@ export interface AnalysisRequestBody {
 export interface AnalysisAnswersRequestBody {
   state: unknown
   answers: unknown[]
+  originalInput?: string
+  supplementalInput?: string
   missingInformation: string[]
   modelSettings: unknown
 }

@@ -24,11 +24,11 @@ class AnalysisContextBuilderTests {
     private final AnalysisContextBuilder builder = new AnalysisContextBuilder();
 
     @Test
-    void keepsOnlyTheMostRecentAnswerBatchInsteadOfTheFullConversation() {
+    void keepsHistoricalAnswersInTimeOrderForFollowUpClarification() {
         UUID oldBatch = UUID.randomUUID();
         UUID latestBatch = UUID.randomUUID();
         List<AnalysisContextBuilder.QuestionAnswerTurn> history = new ArrayList<>();
-        for (int index = 0; index < 100; index++) {
+        for (int index = 0; index < 3; index++) {
             history.add(turn(oldBatch, "旧问题-" + index, "旧回答-" + index, NOW.minusSeconds(200 - index)));
         }
         history.add(turn(latestBatch, "最新问题一", "最新回答一", NOW));
@@ -37,10 +37,9 @@ class AnalysisContextBuilderTests {
         AnalysisContextBuilder.AnalysisContext context = builder.build(
                 state(), history, List.of("还缺少异常流程"), "{\"type\":\"object\"}");
 
-        assertThat(context.recentAnswers()).hasSize(2)
+        assertThat(context.answerHistory()).hasSize(5)
                 .extracting(AnalysisContextBuilder.QuestionAnswerTurn::answer)
-                .containsExactly("最新回答一", "最新回答二");
-        assertThat(context.toString()).doesNotContain("旧回答-99");
+                .containsExactly("旧回答-0", "旧回答-1", "旧回答-2", "最新回答一", "最新回答二");
     }
 
     @Test

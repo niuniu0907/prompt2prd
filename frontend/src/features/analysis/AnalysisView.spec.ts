@@ -108,13 +108,13 @@ describe('AnalysisView', () => {
     await flushPromises()
 
     expect(wrapper.text()).toContain('已确认需求1')
-    expect(wrapper.text()).toContain('待确认内容0')
+    expect(wrapper.text()).toContain('待确认/待分析0')
     expect(wrapper.text()).not.toContain('Vue 3 + Spring Boot 单体')
     expect(wrapper.text()).not.toContain('ai: Spring AI')
     expect(client.analyze).not.toHaveBeenCalled()
   })
 
-  it('does not send users back to architecture recommendations after a scheme is confirmed', async () => {
+  it('sends users to PRD once clarification and confirmation are complete', async () => {
     const restored: AnalysisState = {
       ...finalState(),
       project: { ...project, stage: 'ARCHITECTURE', completeness: 82 },
@@ -139,7 +139,7 @@ describe('AnalysisView', () => {
     })
     await flushPromises()
 
-    expect(wrapper.text()).toContain('生成业务流程图')
+    expect(wrapper.text()).toContain('生成 PRD')
     expect(wrapper.text()).not.toContain('进入架构建议')
     expect(client.analyze).not.toHaveBeenCalled()
   })

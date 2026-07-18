@@ -11,7 +11,7 @@ import java.util.regex.Pattern;
 
 /**
  * Deterministic consistency checks for a complete PRD.
- * Validates stable IDs, cross-references, concise technical decisions, and section completeness.
+ * Validates stable IDs, cross-references, and section completeness.
  */
 public final class PrdValidator {
 
@@ -38,9 +38,7 @@ public final class PrdValidator {
         validateSectionsExist(sections, errors);
         List<String> allIds = collectStableIds(sections, errors);
         validateCrossReferences(allIds, sections, errors);
-        validateTechnicalDecisionSummary(sections, confirmedArchitectureId, warnings);
         validateAcceptanceSection(sections, errors);
-        validateImplementationPhases(sections, errors);
         validateNoCandidateArchitectureLeak(sections, warnings);
 
         return new ValidationReport(errors.isEmpty(), errors, warnings);
@@ -98,33 +96,18 @@ public final class PrdValidator {
                 && !sections.get("user-stories").isBlank()) {
             errors.add("缺少用户故事编号（US-xxx）");
         }
-        if (!prefixes.contains("BR") && sections.containsKey("rules-exceptions")
-                && !sections.get("rules-exceptions").isBlank()) {
+        if (!prefixes.contains("BR") && sections.containsKey("business-rules")
+                && !sections.get("business-rules").isBlank()) {
             errors.add("缺少业务规则编号（BR-xxx）");
         }
-        if (!prefixes.contains("AC") && sections.containsKey("acceptance")
-                && !sections.get("acceptance").isBlank()) {
+        if (!prefixes.contains("AC") && sections.containsKey("acceptance-criteria")
+                && !sections.get("acceptance-criteria").isBlank()) {
             errors.add("缺少验收条件编号（AC-xxx）");
         }
     }
 
-    private static void validateTechnicalDecisionSummary(
-            Map<String, String> sections, String confirmedArchitectureId, List<String> warnings) {
-        String archContent = sections.getOrDefault("architecture", "");
-        if (archContent.isBlank()) {
-            return;
-        }
-        if (DETAILED_ARCHITECTURE_MARKER.matcher(archContent).find()) {
-            warnings.add("技术决策摘要疑似包含详细架构设计或评分比较，应移至技术方案文档");
-        }
-        if (confirmedArchitectureId != null && !confirmedArchitectureId.isBlank()
-                && !archContent.contains(confirmedArchitectureId)) {
-            warnings.add("技术决策摘要未引用已确认的架构 ID");
-        }
-    }
-
     private static void validateAcceptanceSection(Map<String, String> sections, List<String> errors) {
-        String acceptance = sections.getOrDefault("acceptance", "");
+        String acceptance = sections.getOrDefault("acceptance-criteria", "");
         if (acceptance.isBlank()) {
             errors.add("验收章节不能为空");
             return;
@@ -136,25 +119,12 @@ public final class PrdValidator {
         }
     }
 
-    private static void validateImplementationPhases(Map<String, String> sections, List<String> errors) {
-        String phases = sections.getOrDefault("implementation-phases", "");
-        if (phases.isBlank()) {
-            errors.add("实施阶段章节不能为空");
-            return;
-        }
-        boolean hasPhaseId = PHASE_PATTERN.matcher(phases).find();
-        if (!hasPhaseId) {
-            errors.add("实施阶段应包含 PHASE-xxx 编号");
-        }
-    }
-
-    private static final Pattern PHASE_PATTERN = Pattern.compile("PHASE-\\d{3}");
-
     private static void validateNoCandidateArchitectureLeak(
             Map<String, String> sections, List<String> warnings) {
         for (Map.Entry<String, String> entry : sections.entrySet()) {
-            if (entry.getValue().contains("备选架构") || entry.getValue().contains("alternative architecture")) {
-                warnings.add("章节 " + entry.getKey() + " 可能包含未确认的备选架构描述");
+            if (entry.getValue().contains("备选架构") || entry.getValue().contains("alternative architecture")
+                    || DETAILED_ARCHITECTURE_MARKER.matcher(entry.getValue()).find()) {
+                warnings.add("章节 " + entry.getKey() + " 可能包含技术方案、架构比较或备选架构描述，应移至可选附件");
             }
         }
     }

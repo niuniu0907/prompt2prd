@@ -4,11 +4,17 @@ import type { RequirementItem } from './types'
 import { structuredRequirementFields } from './requirementDisplay'
 
 const props = defineProps<{ requirement: RequirementItem }>()
-defineEmits<{ lock: [requirementId: string, locked: boolean]; edit: [requirement: RequirementItem] }>()
+defineEmits<{
+  lock: [requirementId: string, locked: boolean]
+  edit: [requirement: RequirementItem]
+  viewDetail: [requirement: RequirementItem]
+  generateAcceptance: [requirement: RequirementItem]
+  generateFlowchart: [requirement: RequirementItem]
+}>()
 
 const source: Record<string, string> = {
-  INITIAL_INPUT: '初始输入',
-  UPLOADED_FILE: '上传文件',
+  INITIAL_INPUT: '用户原始输入',
+  UPLOADED_FILE: '导入文档',
   USER_ANSWER: '用户回答',
   AI_INFERENCE: 'AI 推断',
   AI_RECOMMENDATION: 'AI 建议',
@@ -35,12 +41,20 @@ const typeLabels: Record<string, string> = {
   MISSING_INFORMATION: '待补充信息',
 }
 const statusLabels: Record<string, string> = {
-  INFERRED: '推断',
+  UNANALYZED: '未分析',
+  INFERRED: '待确认',
   PENDING: '待确认',
   CONFIRMED: '已确认',
-  CONFLICTED: '有冲突',
+  SKIPPED: '已跳过',
+  NOT_APPLICABLE: '不适用',
+  CONFLICTED: '存在冲突',
 }
 const structuredFields = computed(() => structuredRequirementFields(props.requirement))
+const canGenerateFlowchart = computed(() => [
+  'FEATURE',
+  'BUSINESS_RULE',
+  'EXCEPTION_SCENARIO',
+].includes(props.requirement.type))
 </script>
 <template>
   <article class="requirement-card">
@@ -59,6 +73,16 @@ const structuredFields = computed(() => structuredRequirementFields(props.requir
     <footer>
       <small>{{ source[requirement.sourceType] }}</small>
       <div>
+        <button type="button" @click="$emit('viewDetail', requirement)">查看详情</button>
+        <button type="button" @click="$emit('generateAcceptance', requirement)">生成验收标准</button>
+        <button
+          v-if="canGenerateFlowchart"
+          type="button"
+          data-testid="generate-flowchart"
+          @click="$emit('generateFlowchart', requirement)"
+        >
+          生成流程图
+        </button>
         <button type="button" :disabled="requirement.locked" @click="$emit('edit', requirement)">编辑</button>
         <button
           data-testid="toggle-lock"
@@ -73,5 +97,5 @@ const structuredFields = computed(() => structuredRequirementFields(props.requir
   </article>
 </template>
 <style scoped>
-.requirement-card{display:grid;gap:10px;padding:16px;border:1px solid var(--color-border);border-radius:12px;background:var(--color-surface)}header,footer{display:flex;align-items:center;justify-content:space-between;gap:10px}header span,header b,small{font-size:10px}header span{color:var(--color-text-secondary)}header b{color:var(--color-accent)}h2{margin:0;font-size:14px}p{margin:0;color:var(--color-text-secondary);font-size:12px;line-height:1.6}.requirement-fields{display:grid;grid-template-columns:88px minmax(0,1fr);gap:7px 12px;margin:0}.requirement-fields dt{color:var(--color-text-secondary);font-size:11px}.requirement-fields dd{min-width:0;margin:0;color:var(--color-text-primary);font-size:12px;line-height:1.45;overflow-wrap:anywhere}footer button{margin-left:7px;padding:5px 8px;border-radius:7px;cursor:pointer}
+.requirement-card{display:grid;gap:10px;padding:16px;border:1px solid var(--color-border);border-radius:12px;background:var(--color-surface)}header,footer{display:flex;align-items:center;justify-content:space-between;gap:10px}header span,header b,small{font-size:10px}header span{color:var(--color-text-secondary)}header b{color:var(--color-accent)}h2{margin:0;font-size:14px}p{margin:0;color:var(--color-text-secondary);font-size:12px;line-height:1.6}.requirement-fields{display:grid;grid-template-columns:88px minmax(0,1fr);gap:7px 12px;margin:0}.requirement-fields dt{color:var(--color-text-secondary);font-size:11px}.requirement-fields dd{min-width:0;margin:0;color:var(--color-text-primary);font-size:12px;line-height:1.45;overflow-wrap:anywhere}footer div{display:flex;justify-content:flex-end;gap:6px;flex-wrap:wrap}footer button{padding:5px 8px;border-radius:7px;cursor:pointer}
 </style>

@@ -1,7 +1,8 @@
 import { createPinia, setActivePinia } from 'pinia'
 import { flushPromises, mount } from '@vue/test-utils'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { routeLocationKey } from 'vue-router'
+import { createMemoryHistory } from 'vue-router'
+import { createAppRouter } from '@/router'
 import type { PrdSection } from './types'
 
 const mocks = vi.hoisted(() => ({
@@ -11,6 +12,9 @@ const mocks = vi.hoisted(() => ({
   saveSection: vi.fn(),
   lockSection: vi.fn(),
   saveGeneratedContent: vi.fn(),
+  generateAll: vi.fn(),
+  generateSection: vi.fn(),
+  cancelPrd: vi.fn(),
 }))
 
 vi.mock('@/db/repositories/analysisStateRepository', () => ({
@@ -27,9 +31,9 @@ vi.mock('@/db/repositories/prdRepository', () => ({
 }))
 vi.mock('@/api/prdApi', () => ({
   createPrdClient: () => ({
-    generateAll: vi.fn(),
-    generateSection: vi.fn(),
-    cancel: vi.fn(),
+    generateAll: mocks.generateAll,
+    generateSection: mocks.generateSection,
+    cancel: mocks.cancelPrd,
   }),
 }))
 
@@ -51,21 +55,24 @@ function state() {
 
 function sections(): PrdSection[] {
   return [
-    { id: 'a'.repeat(32), projectId, sectionKey: 'coding-agent-guide', title: 'Coding Agent 使用说明',
+    { id: 'a'.repeat(32), projectId, sectionKey: 'product-background-goals', title: '产品背景与目标',
       content: '# 说明', order: 1, status: 'COMPLETED', locked: false, errorCode: null,
       createdAt: '2026-07-17T00:00:00.000Z', updatedAt: '2026-07-17T00:00:00.000Z' },
-    { id: 'b'.repeat(32), projectId, sectionKey: 'product-context', title: '产品背景',
+    { id: 'b'.repeat(32), projectId, sectionKey: 'target-users-scenarios', title: '目标用户与使用场景',
       content: '', order: 2, status: 'DRAFT', locked: false, errorCode: null,
       createdAt: '2026-07-17T00:00:00.000Z', updatedAt: '2026-07-17T00:00:00.000Z' },
-    { id: 'c'.repeat(32), projectId, sectionKey: 'apis', title: '接口契约',
-      content: '', order: 11, status: 'FAILED', locked: false, errorCode: 'TIMEOUT',
+    { id: 'c'.repeat(32), projectId, sectionKey: 'acceptance-criteria', title: '验收标准',
+      content: '', order: 9, status: 'FAILED', locked: false, errorCode: 'TIMEOUT',
       createdAt: '2026-07-17T00:00:00.000Z', updatedAt: '2026-07-17T00:00:00.000Z' },
   ]
 }
 
 async function mounted() {
+  const router = createAppRouter(createMemoryHistory())
+  await router.push(`/projects/${projectId}/prd`)
+  await router.isReady()
   const wrapper = mount(PrdView, {
-    global: { provide: { [routeLocationKey as symbol]: { params: { projectId } } } },
+    global: { plugins: [router] },
   })
   await flushPromises()
   return wrapper
@@ -87,6 +94,8 @@ beforeEach(() => {
     Promise.resolve({ ...sections().find(s => s.sectionKey === key)!, locked }))
   mocks.saveGeneratedContent.mockImplementation((_pid: string, key: string, content: string) =>
     Promise.resolve({ ...sections().find(s => s.sectionKey === key)!, content, status: 'COMPLETED' }))
+  mocks.generateAll.mockResolvedValue({ mode: 'FINAL', missingItems: [] })
+  mocks.generateSection.mockResolvedValue({ mode: 'FINAL', missingItems: [] })
 })
 
 describe('PrdView', () => {
@@ -110,6 +119,18 @@ describe('PrdView', () => {
     expect(btn.text()).toContain('生成全部 PRD')
   })
 
+  it('does not request PRD generation when model settings are incomplete', async () => {
+    const store = useModelConfigStore()
+    store.model = ''
+    const wrapper = await mounted()
+
+    await wrapper.find('[data-testid="generate-all-btn"]').trigger('click')
+    await flushPromises()
+
+    expect(mocks.generateAll).not.toHaveBeenCalled()
+    expect(wrapper.find('[data-testid="prd-error"]').text()).toContain('模型名称未填写')
+  })
+
   it('shows edit and preview mode toggle', async () => {
     const wrapper = await mounted()
     expect(wrapper.find('[data-testid="mode-edit"]').exists()).toBe(true)
@@ -119,7 +140,7 @@ describe('PrdView', () => {
   it('displays section failed info', async () => {
     const wrapper = await mounted()
     // Select the failed section
-    const failedItem = wrapper.find('[data-testid="prd-section-apis"]')
+    const failedItem = wrapper.find('[data-testid="prd-section-acceptance-criteria"]')
     await failedItem.trigger('click')
     await flushPromises()
     expect(wrapper.find('[data-testid="section-failed-info"]').exists()).toBe(true)
@@ -127,8 +148,11 @@ describe('PrdView', () => {
 
   it('shows loading state initially', async () => {
     mocks.initializeSections.mockReturnValueOnce(new Promise(() => {}))
+    const router = createAppRouter(createMemoryHistory())
+    await router.push(`/projects/${projectId}/prd`)
+    await router.isReady()
     const wrapper = mount(PrdView, {
-      global: { provide: { [routeLocationKey as symbol]: { params: { projectId } } } },
+      global: { plugins: [router] },
     })
     expect(wrapper.text()).toContain('正在读取')
   })

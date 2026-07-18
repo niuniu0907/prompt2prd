@@ -19,7 +19,7 @@ export class PrdRepository {
   async getByKey(projectId: string, sectionKey: string): Promise<PrdSection | undefined> {
     assertUuid(projectId, 'project id')
     if (!sectionKey.trim()) throw new TypeError('section key must not be blank')
-    return this.database.prd_section.where('[projectId+sectionKey]').equals([projectId, sectionKey.trim()]).first()
+    return this.database.prd_section.where('[projectId+sectionKey]').equals([projectId, normalizeSectionKey(sectionKey)]).first()
   }
 
   async initializeSections(projectId: string, now = new Date().toISOString()): Promise<PrdSection[]> {
@@ -242,25 +242,35 @@ export class PrdRepository {
 
 function sectionTitle(key: PrdSectionKey): string {
   const titles: Record<PrdSectionKey, string> = {
-    'coding-agent-guide': 'Coding Agent 使用说明',
-    'product-context': '产品背景、目标与非目标',
-    'roles-permissions': '用户角色与权限',
-    'features-priorities': '功能模块及优先级',
-    'user-stories': '用户故事与功能摘要',
-    'flows-state-machine': '核心业务流程与状态机',
-    'rules-exceptions': '业务规则和异常场景',
-    'architecture': '技术决策摘要与工程约束',
-    'data-model': '数据实体、字段、关系和状态',
-    'pages': '页面清单与页面行为',
-    'apis': '接口契约、请求响应示例和错误码',
-    'non-functional': '安全、性能和其他非功能需求',
-    'acceptance': '普通验收规则和 Given/When/Then 场景',
-    'implementation-phases': '分阶段实施计划',
-    'test-strategy': '测试策略与关键测试用例',
-    'prohibitions': '明确禁止事项',
-    'open-items': 'AI 假设、待确认事项和已知限制',
+    'product-background-goals': '产品背景与目标',
+    'target-users-scenarios': '目标用户与使用场景',
+    'product-scope': '产品范围',
+    'feature-modules-priority': '功能模块与优先级',
+    'user-stories': '用户故事',
+    'business-rules': '业务规则',
+    'exception-scenarios': '异常场景',
+    'page-list-states': '页面清单与页面状态',
+    'data-requirements': '数据需求',
+    'acceptance-criteria': '验收标准',
+    'non-functional-requirements': '非功能需求',
+    'risks-assumptions-open-items': '风险、假设与待确认事项',
   }
   return titles[key] ?? key
+}
+
+function normalizeSectionKey(sectionKey: string): string {
+  const key = sectionKey.trim()
+  const aliases: Record<string, string> = {
+    'product-goals': 'product-background-goals',
+    'user-roles': 'target-users-scenarios',
+    'feature-scope': 'product-scope',
+    pages: 'page-list-states',
+    'data-needs': 'data-requirements',
+    acceptance: 'acceptance-criteria',
+    'non-functional': 'non-functional-requirements',
+    'risks-open-items': 'risks-assumptions-open-items',
+  }
+  return aliases[key] ?? key
 }
 
 export const prdRepository = new PrdRepository()

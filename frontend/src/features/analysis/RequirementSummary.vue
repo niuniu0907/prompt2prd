@@ -22,7 +22,7 @@ const structuredFields = computed(() =>
 
 <template>
   <section class="summary">
-    <div v-if="formalRequirements.length === 0" class="summary__empty">需求卡片会随着分析逐步出现在这里。</div>
+    <div v-if="formalRequirements.length === 0" class="summary__empty">待确认需求会随着分析逐步出现在这里。</div>
     <template v-else>
       <section v-if="goals.length" class="summary__group">
         <h2>产品目标</h2>

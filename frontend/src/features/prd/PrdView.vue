@@ -1,10 +1,11 @@
 <script setup lang="ts">
 import { computed, inject, onBeforeUnmount, onMounted, ref } from 'vue'
-import { routeLocationKey } from 'vue-router'
+import { routeLocationKey, useRouter } from 'vue-router'
 import { analysisStateRepository, type AnalysisState } from '@/db/repositories/analysisStateRepository'
 import { prdRepository } from '@/db/repositories/prdRepository'
 import { useModelConfigStore } from '@/stores/modelConfigStore'
 import { createPrdClient } from '@/api/prdApi'
+import { validateAnalysisModelSettings } from '@/api/modelSettingsValidation'
 import type { KnownStreamEvent } from '@/api/streamEvents'
 import type { PrdSection } from './types'
 import PrdSectionList from './PrdSectionList.vue'
@@ -12,6 +13,7 @@ import PrdEditor from './PrdEditor.vue'
 import PrdPreview from './PrdPreview.vue'
 
 const route = inject(routeLocationKey, null)
+const router = useRouter()
 const projectId = computed(() => String(route?.params.projectId ?? ''))
 const modelStore = useModelConfigStore()
 const prdClient = createPrdClient()
@@ -121,6 +123,12 @@ async function saveCurrent() {
 
 async function generateAll() {
   if (!analysisState.value) return
+  const settings = modelSettings()
+  const setupError = validateAnalysisModelSettings(settings)
+  if (setupError) {
+    errorMessage.value = setupError
+    return
+  }
   generating.value = true
   generatingKey.value = 'all'
   errorMessage.value = ''
@@ -133,7 +141,7 @@ async function generateAll() {
       {
         state: backendState(analysisState.value),
         missingInformation: [],
-        modelSettings: modelSettings(),
+        modelSettings: settings,
       },
       {
         onEvent: (event: KnownStreamEvent) => handleStreamEvent(event, contentBuffer),
@@ -151,6 +159,12 @@ async function generateAll() {
 
 async function generateSection(key: string) {
   if (!analysisState.value) return
+  const settings = modelSettings()
+  const setupError = validateAnalysisModelSettings(settings)
+  if (setupError) {
+    errorMessage.value = setupError
+    return
+  }
   generating.value = true
   generatingKey.value = key
   errorMessage.value = ''
@@ -163,7 +177,7 @@ async function generateSection(key: string) {
       {
         state: backendState(analysisState.value),
         missingInformation: [],
-        modelSettings: modelSettings(),
+        modelSettings: settings,
       },
       {
         onEvent: (event: KnownStreamEvent) => handleStreamEvent(event, contentBuffer),
@@ -247,6 +261,14 @@ function modelSettings() {
 function readable(error: unknown) {
   return error instanceof Error ? error.message : 'PRD 操作失败，已保存内容未改变。'
 }
+
+function goToTechnicalPlan() {
+  void router.push({
+    name: 'project-architecture',
+    params: { projectId: projectId.value },
+    query: { from: 'prd' },
+  })
+}
 </script>
 
 <template>
@@ -255,9 +277,17 @@ function readable(error: unknown) {
       <div>
         <span>PRD 文档</span>
         <h1>AI-ready PRD</h1>
-        <p>17 个章节按序生成，当前章节在右侧统一编辑、预览和保存。</p>
+        <p>围绕需求主链路按章节生成，当前章节在右侧统一编辑、预览和保存。</p>
       </div>
       <div class="heading-actions">
+        <button
+          type="button"
+          class="secondary-btn"
+          :disabled="loading || generating"
+          @click="goToTechnicalPlan"
+        >
+          生成技术方案（可选）
+        </button>
         <button
           type="button"
           class="button-primary"
@@ -400,6 +430,20 @@ function readable(error: unknown) {
 .heading-actions {
   display: flex;
   gap: 8px;
+}
+.secondary-btn {
+  min-height: 36px;
+  padding: 0 13px;
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  color: var(--color-text-secondary);
+  background: var(--color-surface);
+  font-size: 12px;
+  cursor: pointer;
+}
+.secondary-btn:hover {
+  color: var(--color-text-primary);
+  background: var(--color-surface-muted);
 }
 .status, .empty {
   padding: 40px;

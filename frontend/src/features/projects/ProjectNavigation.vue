@@ -1,6 +1,7 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, ref } from 'vue'
 import type { ProjectModule } from '@/features/projects/types'
+import { OPTIONAL_PROJECT_MODULES, PRIMARY_PROJECT_MODULES } from '@/features/projects/types'
 
 const props = defineProps<{
   currentModule: ProjectModule
@@ -17,28 +18,50 @@ interface NavItem {
   label: string
 }
 
-const navItems: NavItem[] = [
-  { module: 'overview', label: '需求概览' },
-  { module: 'questions', label: '问题向导' },
-  { module: 'requirements', label: '需求卡片' },
-  { module: 'architecture', label: '架构建议' },
-  { module: 'flowchart', label: '流程图' },
-  { module: 'prd', label: 'PRD' },
-]
+const labels: Record<ProjectModule, string> = {
+  overview: '需求输入',
+  questions: 'AI澄清',
+  requirements: '需求结果',
+  prd: 'PRD文档',
+  flowchart: '流程图',
+  architecture: '架构建议',
+}
 
-const moduleCompleteness = computed(() => props.completeness ?? 0)
+const primaryNavItems: NavItem[] = PRIMARY_PROJECT_MODULES.map(module => ({
+  module,
+  label: labels[module],
+}))
+
+const optionalNavItems: NavItem[] = OPTIONAL_PROJECT_MODULES.map(module => ({
+  module,
+  label: labels[module],
+}))
+
+const moreToolsExpanded = ref(false)
+const activeOptionalTool = computed(() => OPTIONAL_PROJECT_MODULES.includes(
+  props.currentModule as (typeof OPTIONAL_PROJECT_MODULES)[number],
+))
+const showOptionalTools = computed(() => moreToolsExpanded.value || activeOptionalTool.value)
+
+function toggleMoreTools() {
+  moreToolsExpanded.value = !moreToolsExpanded.value
+}
+
+function itemClasses(item: NavItem) {
+  return [
+    'project-nav__item',
+    { 'project-nav__item--active': props.currentModule === item.module },
+  ]
+}
 </script>
 
 <template>
   <nav class="project-nav" aria-label="项目模块导航">
-    <p class="project-nav__label">项目模块</p>
+    <p class="project-nav__label">主流程</p>
     <ul class="project-nav__list">
-      <li v-for="item in navItems" :key="item.module">
+      <li v-for="item in primaryNavItems" :key="item.module">
         <button
-          :class="[
-            'project-nav__item',
-            { 'project-nav__item--active': currentModule === item.module },
-          ]"
+          :class="itemClasses(item)"
           type="button"
           :data-module="item.module"
           :aria-current="currentModule === item.module ? 'page' : undefined"
@@ -48,6 +71,33 @@ const moduleCompleteness = computed(() => props.completeness ?? 0)
         </button>
       </li>
     </ul>
+
+    <div class="project-nav__more">
+      <button
+        class="project-nav__more-toggle"
+        type="button"
+        data-testid="more-tools-toggle"
+        :aria-expanded="showOptionalTools"
+        @click="toggleMoreTools"
+      >
+        <span>更多工具</span>
+        <span class="project-nav__more-icon" aria-hidden="true">{{ showOptionalTools ? '⌃' : '⌄' }}</span>
+      </button>
+
+      <ul v-if="showOptionalTools" class="project-nav__list project-nav__list--optional">
+        <li v-for="item in optionalNavItems" :key="item.module">
+          <button
+            :class="itemClasses(item)"
+            type="button"
+            :data-module="item.module"
+            :aria-current="currentModule === item.module ? 'page' : undefined"
+            @click="emit('navigate', item.module)"
+          >
+            <span class="project-nav__item-label">{{ item.label }}</span>
+          </button>
+        </li>
+      </ul>
+    </div>
   </nav>
 </template>
 
@@ -77,6 +127,42 @@ const moduleCompleteness = computed(() => props.completeness ?? 0)
   list-style: none;
   margin: 0;
   padding: 0;
+}
+
+.project-nav__more {
+  display: grid;
+  gap: 5px;
+  margin-top: 16px;
+  padding-top: 12px;
+  border-top: 1px solid var(--color-border);
+}
+
+.project-nav__more-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-height: 32px;
+  padding: 0 10px;
+  border-radius: 7px;
+  color: var(--color-text-secondary);
+  background: transparent;
+  font-size: 12px;
+  font-weight: 640;
+  cursor: pointer;
+}
+
+.project-nav__more-toggle:hover {
+  background: var(--color-surface-muted);
+  color: var(--color-text-primary);
+}
+
+.project-nav__more-icon {
+  color: var(--color-text-muted);
+  font-size: 12px;
+}
+
+.project-nav__list--optional {
+  padding-left: 8px;
 }
 
 .project-nav__item {

@@ -49,21 +49,21 @@ class PrdControllerTests {
                 .returnResult(StreamEvent.class).getResponseBody().collectList().block();
 
         assertThat(events).isNotNull();
-        assertThat(events).filteredOn(event -> event.type() == StreamEventType.SECTION_STARTED).hasSize(17);
+        assertThat(events).filteredOn(event -> event.type() == StreamEventType.SECTION_STARTED).hasSize(12);
         assertThat(events).filteredOn(event -> event.type().terminal()).singleElement()
                 .extracting(StreamEvent::type).isEqualTo(StreamEventType.GENERATION_COMPLETED);
         verify(quotaService).beginOperation("a".repeat(64), ModelConfig.KeySource.USER, QuotaOperation.FULL_PRD);
-        verify(quotaService).acquireUpstreamCalls(ModelConfig.KeySource.USER, 17);
+        verify(quotaService).acquireUpstreamCalls(ModelConfig.KeySource.USER, 12);
     }
 
     @Test
     void streamsOnlyRequestedSection() {
-        List<StreamEvent> events = client.post().uri("/api/generation/prd/sections/apis")
+        List<StreamEvent> events = client.post().uri("/api/generation/prd/sections/acceptance-criteria")
                 .bodyValue(request()).exchange().expectStatus().isOk()
                 .returnResult(StreamEvent.class).getResponseBody().collectList().block();
 
         assertThat(events).filteredOn(event -> event.type() == StreamEventType.SECTION_STARTED)
-                .singleElement().satisfies(event -> assertThat(event.data().get("sectionId")).isEqualTo("apis"));
+                .singleElement().satisfies(event -> assertThat(event.data().get("sectionId")).isEqualTo("acceptance-criteria"));
         verify(quotaService).checkFrequency("a".repeat(64));
         verify(quotaService).acquireUpstreamCalls(ModelConfig.KeySource.USER, 1);
     }
@@ -80,14 +80,12 @@ class PrdControllerTests {
         Map<String, String> sections = new java.util.HashMap<>();
         for (var section : PrdDefinition.sections()) {
             sections.put(section.key().wireName(),
-                    "REQ-001 核心功能\nUS-001 用户故事\nBR-001 业务规则\nAPI-001 接口\nPAGE-001 页面\nAC-001 验收条件\nPHASE-001 阶段一");
+                    "REQ-001 核心功能\nUS-001 用户故事\nBR-001 业务规则\nPAGE-001 页面\nAC-001 验收条件");
         }
-        sections.put("acceptance", "AC-001 Given 用户已登录 When 点击按钮 Then 显示成功。");
-        sections.put("architecture", "Vue 3 + Spring Boot 单体架构。");
-        sections.put("implementation-phases", "PHASE-001 基础框架搭建。");
+        sections.put("acceptance-criteria", "AC-001 Given 用户已登录 When 点击按钮 Then 显示成功。");
 
         client.post().uri("/api/generation/prd/validate")
-                .bodyValue(Map.of("sections", sections, "confirmedArchitectureId", "arch-1"))
+                .bodyValue(Map.of("sections", sections))
                 .exchange().expectStatus().isOk()
                 .expectBody().jsonPath("$.valid").isEqualTo(true)
                 .jsonPath("$.errors").isArray()
@@ -97,7 +95,7 @@ class PrdControllerTests {
     @Test
     void validateRejectsIncompleteSections() {
         Map<String, String> minimal = new java.util.HashMap<>();
-        minimal.put("coding-agent-guide", "content");
+        minimal.put("product-background-goals", "content");
         client.post().uri("/api/generation/prd/validate")
                 .bodyValue(Map.of("sections", minimal))
                 .exchange().expectStatus().isOk()
@@ -118,7 +116,7 @@ class PrdControllerTests {
                 java.time.Instant.parse("2026-07-17T00:00:00Z"));
         client.post().uri("/api/generation/prd/analyze-changes")
                 .bodyValue(Map.of(
-                        "sectionKey", "rules-exceptions",
+                        "sectionKey", "business-rules",
                         "oldContent", "退款时限为 24 小时。",
                         "newContent", "退款时限为 48 小时。",
                         "currentRequirements", List.of(requirement)))

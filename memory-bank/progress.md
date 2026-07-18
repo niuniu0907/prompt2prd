@@ -1,10 +1,17 @@
 # Prompt2PRD Progress
 
-> 当前阶段：阶段一至阶段八已完成，阶段九步骤 50～54 已完成；下一步执行步骤 55（完成 JAR 与 Docker 交付）。
+> 当前阶段：阶段一至阶段八已完成，阶段九步骤 50～54 已完成；2026-07-18 已完成产品逻辑重构，主流程统一为“需求输入 → AI澄清 → 需求结果 → PRD文档”，架构建议和流程图转为折叠可选工具；首次 AI 解析成功后即可生成当前 PRD 草稿，生成不再要求 100%、需求全部确认、架构选择或流程图完成。下一步执行步骤 55（完成 JAR 与 Docker 交付）。
 
 ## 已完成
 
 - 产品设计文档、技术栈和 57 步实施计划已经建立。
+- 2026-07-18 产品逻辑重构已完成：工作台一级主导航只保留“需求输入、AI澄清、需求结果、PRD文档”；“流程图、架构建议”保留在默认折叠的“更多工具”中，不再作为主流程必经模块，也不影响 PRD 生成。
+- 2026-07-18 顶部状态已从流程进度改为“需求完整度”，并展示已确认、待确认、待分析和冲突数量；PRD 生成条件改为首次 AI 解析产生真实分析内容后即可启用，待确认、待分析、冲突、架构选择、流程图和 100% 完整度均不再阻塞生成。
+- 2026-07-18 PRD 主文档定义调整为 12 个需求章节：产品背景与目标、目标用户与使用场景、产品范围、功能模块与优先级、用户故事、业务规则、异常场景、页面清单与页面状态、数据需求、验收标准、非功能需求、风险/假设与待确认事项；接口设计、数据库表设计、架构建议和流程图作为可选扩展处理。
+- 2026-07-18 AI 澄清页已收敛为单题访谈：每次只展示一条主要问题，支持选择、补充、采用 AI 建议、跳过、提交并继续和暂时生成 PRD；采用 AI 建议只预填，用户提交后才变为已确认。
+- 2026-07-18 需求状态模型补齐为未分析、待确认、已确认、已跳过、不适用、存在冲突以及 AI 推断兼容状态；AI 推断不会自动转为已确认，完整度按关键需求覆盖计算而非页面流程计算。
+- 2026-07-18 PRD 生成提示已重写：只按当前信息生成，AI 推断标记“待确认”，未分析章节保留并显示“待分析”，跳过内容显示“用户暂未提供”，禁止补编未提及的登录、支付、权限、数据库、部署、接口、架构或流程图细节。
+- 2026-07-18 需求卡片新增“查看详情、生成验收标准、生成流程图”操作；流程图只从用户选中的复杂需求进入生成，不再默认针对整个项目生成。
 - 已确认状态归属、完整度算法、文件分块、模型地址安全、系统 Key 默认策略、SSE 章节事件和浏览器范围。
 - `memory-bank` 路径已经统一，架构与进度文档已经初始化。
 - Git 仓库已经重新初始化。
@@ -35,6 +42,10 @@
 
 ## 当前验证
 
+- `2026-07-18` 产品逻辑重构后运行 `npm --prefix frontend run test` 成功：47 个测试文件、252 项测试全部通过。
+- `2026-07-18` 产品逻辑重构后运行 `npm --prefix frontend run typecheck` 成功：`vue-tsc` 与 `tsc` 严格类型检查均通过。
+- `2026-07-18` 产品逻辑重构后运行 `npm --prefix frontend run build` 成功：生产构建通过，仅保留 Vite 大 chunk 体积提示。
+- `2026-07-18` 产品逻辑重构后运行 `.\mvnw.cmd test` 成功：后端 205 项测试全部通过。
 - `2026-07-17` 运行 `.\mvnw.cmd test` 成功：根工程与后端模块均为 `SUCCESS`，测试 1 个、失败 0、错误 0、跳过 0。
 - Spring 上下文使用 Java 21.0.6 和 Spring Boot 4.1.0 启动，Actuator 暴露默认健康端点。
 - 依赖树确认 WebFlux 使用 Reactor Netty，且不存在 JDBC、JPA、R2DBC 或数据库驱动；当前仍没有服务端业务数据库。
@@ -180,6 +191,8 @@
 - `2026-07-18` 收敛 PRD 技术内容边界：第 8 章改为“技术决策摘要与工程约束”，`PrdGenerator` 不再把完整架构候选、评分矩阵、备选理由或比较元数据送入 PRD 提示词，只传已确认架构的 ID、标题和约束摘要；`PrdValidator` 不再要求详细架构章节，改为在详细架构设计或评分比较混入 PRD 时给出警告。同步更新前端章节标题、e2e mock 文案、设计文档和实施计划口径。验证：PRD 专项后端 24 项通过，`.\mvnw.cmd test` 后端 204 项全部通过，`npm --prefix frontend run test` 47 个测试文件、240 项全部通过，`npm --prefix frontend run typecheck` 通过，残留旧文案检索和 `git diff --check` 通过。
 - `2026-07-18` 修复需求概览在已采用架构方案后仍提示“进入架构建议”的问题：`AnalysisView` 现在和工作台顶部一样读取 `ArchitectureRepository.selected(projectId)`，下一步顺序统一为澄清问题、确认需求、确认架构、生成业务流程图或查看 PRD。验证：`npm --prefix frontend run test -- AnalysisView` 1 个测试文件、5 项通过，`npm --prefix frontend run typecheck` 通过。
 - `2026-07-18` 工作台三栏手动调宽完成：`AppShell` 的全局左栏和 `ProjectWorkspace` 的项目模块栏新增垂直拖拽手柄，宽度分别保存到 `localStorage`，主内容区自动占用剩余空间；`ProjectNavigation` 在窄栏下对模块名做省略显示，避免撑开布局。验证：`npm --prefix frontend run test -- AppShell ProjectWorkspace` 2 个测试文件、23 项通过，`npm --prefix frontend run typecheck` 通过。
+- `2026-07-18` 修复“补充想法让 AI 继续追问”误跳转项目概览：`QuestionWizardView` 在当前需求澄清页内展开补充输入区，补充为空禁用提交，生成中禁用重复提交，失败时保留补充内容；提交后复用 `/api/analysis/answers`，请求同时携带原始项目想法、已确认需求所在当前状态、历史问答和本轮补充想法，成功后在当前页展示下一轮问题。后端 `AnalysisAnswersRequest` 新增 `originalInput/supplementalInput`，`AnalysisContextBuilder` 改为向模型提供历史问答；`ProjectWorkspace` 顶部步骤不再因单轮问题结束就把需求澄清显示为已完成。验证：`npm --prefix frontend run test -- QuestionWizardView ProjectWorkspace` 2 个测试文件、22 项通过；`.\mvnw.cmd test "-Dtest=AnalysisContextBuilderTests,AnalysisControllerTests"` 5 项通过；`npm --prefix frontend run test` 47 个测试文件、247 项全部通过；`npm --prefix frontend run typecheck` 通过；`npm --prefix frontend run build` 通过，仅保留 Vite 大 chunk 体积提示；`.\mvnw.cmd test` 后端 204 项全部通过。
+- `2026-07-18` 修复“提交回答，让 AI 继续追问”在只回答部分问题时显示错误：`QuestionBatch` 普通提交现在只提交已回答或已单题跳过的问题，不再把未填写的问题一起传给 `ClarificationRepository.submitBatch()`；“跳过本轮”仍会把整轮问题全部标记跳过。验证：`npm --prefix frontend run test -- QuestionBatch QuestionWizardView` 2 个测试文件、6 项通过；`npm --prefix frontend run typecheck` 通过；`npm --prefix frontend run test` 47 个测试文件、248 项全部通过。
 
 ## 下一步
 
