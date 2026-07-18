@@ -3,6 +3,7 @@ import { computed, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import {
   projectRepository,
+  type ProjectListFilter,
   type ProjectLookupRepository,
 } from '@/db/repositories/projectRepository'
 import type { Project } from '@/features/projects/types'
@@ -24,6 +25,10 @@ const emit = defineEmits<{
 const repository = props.repository ?? projectRepository
 const route = useRoute()
 const router = useRouter()
+
+function handleAppShellNavigate(view: ProjectListFilter) {
+  void router.push({ name: 'project-home', query: { view } })
+}
 
 const project = ref<Project | null>(null)
 const loading = ref(true)
@@ -83,7 +88,7 @@ function goHome() {
 </script>
 
 <template>
-  <AppShell>
+  <AppShell :active-section="undefined" @navigate="handleAppShellNavigate">
     <div v-if="loading" class="workspace" data-testid="project-workspace">
       <section class="workspace__status" aria-label="正在读取项目">正在读取项目…</section>
     </div>

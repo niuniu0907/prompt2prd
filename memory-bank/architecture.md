@@ -1,6 +1,6 @@
 # Prompt2PRD Architecture
 
-> 当前状态：架构已确认，阶段一至阶段七全部完成。PRD 编辑、预览、IndexedDB 保存、章节锁定/重新生成、需求同步分析和一致性校验/导出均已实现。下一步执行步骤 46（贯通停止与迟到结果保护）。产品事实以 `memory-bank/design-doc.md` 为准，实施顺序以 `memory-bank/implementation-plan.md` 为准。
+> 当前状态：架构已确认，阶段一至阶段八已完成，阶段九步骤 50～54 已完成。取消与迟到结果保护、超时/重试/心跳、输入/渲染/日志安全、额度展示，以及核心端到端夹具和创建澄清、冲突历史、架构流程图 PRD、本地多项目回收站闭环均已实现并验证。下一步执行步骤 55（完成 JAR 与 Docker 交付）。产品事实以 `memory-bank/design-doc.md` 为准，实施顺序以 `memory-bank/implementation-plan.md` 为准。
 
 ## 交付形态
 
@@ -148,14 +148,24 @@
 - SSE 使用 `requestId` 和递增 `eventId` 幂等处理；未知事件记录后忽略，已知非法事件终止任务。
 - 后端 `StreamEventSequence` 固定 15 类事件、每请求从 1 递增且终态后拒绝继续发出事件。前端 `consumePostSse()` 增量解析任意分片，绑定首个请求 ID，忽略重复/迟到或其他请求事件，拒绝序号缺口、非法已知事件和无终态断流。
 - 前端 `createAnalysisClient()` 保证同一客户端只有最新分析可交付事件与结果；`AnalysisView` 先展示流式临时状态，只有 `generation_completed.finalState` 才调用 `AnalysisStateRepository.saveFinal()`。该 Repository 在单个 Dexie 事务内更新项目摘要、需求、问题、答案、冲突和完整度快照，失败不会把半成品覆盖到最后有效状态。
+- 后端 `GenerationTaskRegistry` 按项目跟踪当前生成请求；新请求会取代旧请求，调用方必须在持久化前检查请求仍为当前任务。前端 `useGenerationTask()` 统一管理 `AbortController`、任务版本号、完成/失败/取消状态，分析、架构、流程图和 PRD 结果都通过版本检查丢弃迟到写回。
+- `GenerationProperties` 与 `StreamRetryConfig` 集中描述连接超时、总超时、最大重试次数、退避和心跳窗口；只对可恢复网络错误执行有限重试，鉴权、参数和结构业务错误不重试，流式空闲期间继续发送心跳。
+- `InputSanitizer` 统一限制单字段文本、上传大小和请求体大小；`LogSanitizer` 只允许记录请求 ID、任务类型、耗时、错误类别和计数，并会裁剪或脱敏用户文本、Bearer、API Key、Authorization、Token、密码等敏感片段。
+- `QuotaIndicator.vue` 在模型设置中显示系统 Key 的分析、完整 PRD 和全局调用剩余额度；额度耗尽时提示系统 Key 调用被禁止，并提供切换到用户 Key 的入口。用户 Key 失败仍保持当前来源，不回退系统 Key。
 - 2 MB 内的 Markdown/TXT 按标题和段落拆成不超过 32,000 字符的片段，全部处理且不静默截断。
 - 步骤 11 只建立可注入的逐片顺序处理与 `AbortSignal` 取消边界，默认执行本地片段准备；真实模型分析、上游调用进度和服务端取消将在后续分析与 SSE 步骤接入。
+
+## 端到端测试边界
+
+- `frontend/playwright.config.ts` 使用 Vite dev server 和无网络 mock API 夹具运行端到端测试；模型分析、回答、架构推荐、流程图生成、PRD 流、校验、变更分析、模型连接和额度接口均由 `frontend/e2e/fixtures/mock-server.ts` 确定性响应。
+- Chromium 项目运行 50～54 的完整 e2e 套件，覆盖冲突/锁定/版本、创建/澄清、架构/流程图/PRD 和本地多项目/回收站。
+- Firefox 项目运行创建/澄清、架构/流程图/PRD/导出和本地多项目/回收站冒烟测试；当前浏览器启动在普通 Codex 沙箱内会因 `spawn EPERM` 失败，需要提升权限运行 Playwright。
 
 ## 安全与运行约束
 
 - 用户 Key 只在前端 Pinia 运行时内存和单次请求中存在；系统 Key 模式默认关闭，且系统 Key 永不下发到前端。
 - 公网模型地址必须 HTTPS；仅本机回环地址允许 HTTP，其他私网地址必须显式加入白名单。
-- 支持最新两个稳定版本的 Chrome、Edge 和 Firefox；Playwright 完整测试使用 Chromium，Firefox执行核心冒烟测试。
+- 支持最新两个稳定版本的 Chrome、Edge 和 Firefox；Playwright 完整测试使用 Chromium，Firefox 执行创建、澄清、PRD/导出和本地项目核心冒烟测试。
 
 ## 里程碑维护规则
 

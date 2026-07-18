@@ -66,6 +66,9 @@ describe('AppShell', () => {
   })
 
   it('renders a real empty state without sample projects', async () => {
+    const router = createAppRouter(createMemoryHistory())
+    await router.push('/')
+    await router.isReady()
     const repository: ProjectHomeRepository = {
       listSummaries: vi.fn(async () => []),
       rename: vi.fn(async () => undefined),
@@ -77,6 +80,7 @@ describe('AppShell', () => {
     }
     const wrapper = mount(ProjectHomeView, {
       props: { repository },
+      global: { plugins: [router] },
     })
     await flushPromises()
 

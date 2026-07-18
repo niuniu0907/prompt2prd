@@ -12,6 +12,7 @@ defineProps<{
 }>()
 
 const emit = defineEmits<{
+  open: [projectId: string]
   rename: [projectId: string, name: string]
   copy: [projectId: string]
   archive: [projectId: string]
@@ -29,6 +30,7 @@ const emit = defineEmits<{
       :summary="summary"
       :view="view"
       :busy="busyProjectId === summary.project.id"
+      @open="(id) => emit('open', id)"
       @rename="(id, name) => emit('rename', id, name)"
       @copy="(id) => emit('copy', id)"
       @archive="(id) => emit('archive', id)"

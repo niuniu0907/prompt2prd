@@ -17,6 +17,7 @@ const props = withDefaults(
 )
 
 const emit = defineEmits<{
+  open: [projectId: string]
   rename: [projectId: string, name: string]
   copy: [projectId: string]
   archive: [projectId: string]
@@ -36,6 +37,7 @@ const stageLabels: Record<ProjectStage, string> = {
 const isRenaming = ref(false)
 const renameValue = ref(props.summary.project.name)
 const stageLabel = computed(() => stageLabels[props.summary.project.stage])
+const canOpen = computed(() => props.view !== 'DELETED' && !props.busy && !isRenaming.value)
 const updatedLabel = computed(() =>
   new Intl.DateTimeFormat('zh-CN', {
     month: 'short',
@@ -63,10 +65,36 @@ function requestPermanentDelete() {
   )
   if (confirmed) emit('permanentDelete', props.summary.project.id)
 }
+
+function isCardControl(target: EventTarget | null) {
+  return target instanceof Element && Boolean(
+    target.closest('.project-menu, .rename-form, button, input, textarea, select, a'),
+  )
+}
+
+function openProject(event: MouseEvent) {
+  if (!canOpen.value || isCardControl(event.target)) return
+  emit('open', props.summary.project.id)
+}
+
+function openProjectFromKeyboard(event: KeyboardEvent) {
+  if (!canOpen.value || isCardControl(event.target)) return
+  emit('open', props.summary.project.id)
+}
 </script>
 
 <template>
-  <article class="project-card" :aria-busy="busy" :data-project-id="summary.project.id">
+  <article
+    class="project-card"
+    :class="{ 'project-card--openable': canOpen }"
+    :aria-busy="busy"
+    :data-project-id="summary.project.id"
+    :role="canOpen ? 'link' : undefined"
+    :tabindex="canOpen ? 0 : undefined"
+    @click="openProject"
+    @keydown.enter.prevent="openProjectFromKeyboard"
+    @keydown.space.prevent="openProjectFromKeyboard"
+  >
     <div class="project-card__topline">
       <span class="stage-badge">{{ stageLabel }}</span>
       <details class="project-menu">
@@ -183,6 +211,15 @@ function requestPermanentDelete() {
   border-color: var(--color-border-strong);
   box-shadow: var(--shadow-card);
   transform: translateY(-1px);
+}
+
+.project-card--openable {
+  cursor: pointer;
+}
+
+.project-card--openable:focus-visible {
+  outline: 3px solid rgba(36, 157, 165, 0.32);
+  outline-offset: 3px;
 }
 
 .project-card[aria-busy="true"] {

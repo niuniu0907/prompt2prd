@@ -44,7 +44,7 @@ describe('AnalysisView', () => {
       saveFinal: vi.fn(async (_id, state) => state),
     }
     const wrapper = mount(AnalysisView, {
-      props: { project, client, store, modelSettings: { configured: true } },
+      props: { project, client, store, modelSettings: { keySource: 'SYSTEM', model: 'test-model' } },
       global: { plugins: [createPinia()] },
     })
     await flushPromises()

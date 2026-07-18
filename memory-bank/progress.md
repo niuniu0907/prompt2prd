@@ -1,6 +1,6 @@
 # Prompt2PRD Progress
 
-> 当前阶段：阶段一至阶段六已完成，阶段七步骤 39～41 已完成；下一步执行步骤 42（实现 PRD 编辑、预览与保存）。
+> 当前阶段：阶段一至阶段八已完成，阶段九步骤 50～54 已完成；下一步执行步骤 55（完成 JAR 与 Docker 交付）。
 
 ## 已完成
 
@@ -147,7 +147,18 @@
 - `2026-07-18` 步骤 44 实现 PRD 修改到需求的同步分析：后端 `PrdChangeAnalyzer` 仅在保存时分析差异，通过提取编号事实和数值变化匹配已确认需求项；唯一匹配可自动同步，多匹配或锁定项分别生成待确认变更或冲突警告。新增 `POST /api/generation/prd/analyze-changes` 接口和前端 `analyzePrdChanges()` 导出。
 - `2026-07-18` 步骤 45 实现一致性校验与 Markdown 导出：后端 `PrdValidator` 验证章节完整性、稳定编号、交叉引用、架构标记、验收格式和实施阶段；新增 `POST /api/generation/prd/validate` 接口。前端 `prdExporter.ts` 合并已完成/草稿章节为 Markdown 文件，清理非法文件名字符并触发浏览器下载。
 - 步骤 42～45 自动化模型测试全部使用假 `ModelGateway`。`2026-07-18` 后端完整回归 152 项全部通过（新增 14 项）；前端完整回归 44 个测试文件、206 项全部通过（新增 27 项）；严格 TypeScript 检查和 Vite 生产构建成功。阶段七（AI-ready PRD）已全部完成。
+- `2026-07-18` 步骤 46 实现贯通停止与迟到结果保护：后端新增 `GenerationTaskRegistry` 记录每个项目当前请求，前端新增 `useGenerationTask()` 管理 `AbortController` 和任务版本号；分析、架构、流程图和 PRD 的迟到结果在入库前通过当前版本检查丢弃。
+- `2026-07-18` 步骤 47 实现超时、有限重试与心跳配置：`GenerationProperties` 和 `StreamRetryConfig` 集中管理连接超时、总超时、重试次数、退避和心跳窗口；只对可恢复网络错误重试，鉴权、参数和结构业务错误不重试。
+- `2026-07-18` 步骤 48 完成输入、渲染与日志安全：`InputSanitizer` 限制单字段文本、上传大小和请求体大小；`LogSanitizer` 只记录请求 ID、任务、耗时和错误类别，并脱敏 Key、Authorization、Bearer、Token、密码等片段；Markdown 预览继续关闭原始 HTML，模型地址安全边界仍由现有策略执行。
+- `2026-07-18` 步骤 49 实现额度展示与切换引导：`QuotaIndicator.vue` 读取 `/api/quota`，展示系统 Key 剩余分析次数、完整 PRD 次数和全局调用预算；额度耗尽时提示系统 Key 调用被禁止并提供切换到用户 Key 的入口，用户 Key 失败不回退系统 Key。
+- 步骤 46～49 复核时未发现明显实现错误。`2026-07-18` 后端完整回归 195 项全部通过；前端完整回归 46 个测试文件、225 项全部通过；严格 TypeScript 检查和 Vite 生产构建成功。
+- `2026-07-18` 步骤 50 建立核心端到端测试夹具：新增 `frontend/playwright.config.ts`、`frontend/e2e/fixtures/mock-server.ts` 和 `test-helpers.ts`，使用 Vite dev server 与确定性 mock API 覆盖结构化分析、回答、架构推荐、流程图、PRD 流、校验、变更分析、模型连接和额度接口；e2e 不依赖真实网络或真实 API Key。
+- `2026-07-18` 步骤 51 新增 `frontend/e2e/create-and-clarify.spec.ts`，覆盖文字创建、文件入口、第一轮问题、自定义答案、跳过、实时卡片、刷新恢复、分维度完整度和 80% 后继续/生成入口。
+- `2026-07-18` 步骤 52 新增 `frontend/e2e/conflict-and-history.spec.ts`，覆盖锁定、模型矛盾冲突、核心冲突、手动编辑、版本差异和恢复后的刷新保持。
+- `2026-07-18` 步骤 53 新增 `frontend/e2e/generate-prd.spec.ts`，覆盖技术约束、2～3 个架构候选、确认主架构、主/异常流程图、PRD 流、停止、重新生成、编辑/预览、校验导出和右侧面板收起。
+- `2026-07-18` 步骤 54 新增 `frontend/e2e/local-projects.spec.ts`，覆盖两个项目隔离、重命名、复制、归档、回收站、恢复、单项目永久删除、多次刷新和空状态；不提供批量清空回收站。
+- `2026-07-18` 端到端验证完成：普通沙箱下 Playwright 浏览器启动因 `spawn EPERM` 失败，按权限规则提升后 `npm --prefix frontend run test:e2e:chromium` 36 项全部通过；补齐 Firefox PRD/导出冒烟覆盖后，`npm --prefix frontend run test:e2e:firefox` 30 项全部通过。Vite webServer 日志出现 IndexedDB 删除时关闭旧连接的 warning，来源是测试清库流程，不影响通过结果。
 
 ## 下一步
 
-执行 `memory-bank/implementation-plan.md` 步骤 46，贯通停止与迟到结果保护。
+执行 `memory-bank/implementation-plan.md` 步骤 55，完成 JAR 与 Docker 交付。

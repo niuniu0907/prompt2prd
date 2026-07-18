@@ -73,9 +73,32 @@ onMounted(async () => {
 
 onBeforeUnmount(() => client.cancel())
 
+function validateModelSettings(settings: unknown): string | null {
+  const s = settings as Record<string, unknown> | null | undefined
+  if (!s) return '模型配置未设置，请先在「模型设置」页面配置 AI 服务。'
+  if (!String(s.model ?? '').trim()) return '模型名称未填写，请先在「模型设置」页面选择模型。'
+  if (s.keySource === 'USER' && !String(s.apiKey ?? '').trim()) return 'API Key 未填写，请先在「模型设置」页面输入 Key。'
+  if (s.keySource !== 'SYSTEM' && s.keySource !== 'USER') return '模型 Key 来源未选择，请先在「模型设置」页面配置。'
+  return null
+}
+
 async function startAnalysis() {
   const project = currentProject.value
   if (!project || analyzing.value) return
+
+  const settings = props.modelSettings ?? requestModelSettings()
+  const validation = validateModelSettings(settings)
+  if (validation) {
+    errorMessage.value = validation
+    return
+  }
+
+  const input = analysisInput(project)
+  if (!input.trim()) {
+    errorMessage.value = '项目输入内容为空，请返回编辑项目并填写需求描述。'
+    return
+  }
+
   analyzing.value = true
   errorMessage.value = ''
   progress.value = Math.max(progress.value, 5)
@@ -83,9 +106,9 @@ async function startAnalysis() {
   try {
     const finalState = await client.analyze({
       state: serverState(project),
-      input: analysisInput(project),
+      input,
       missingInformation: [],
-      modelSettings: props.modelSettings ?? requestModelSettings(),
+      modelSettings: settings,
     }, { onEvent: handleEvent, onWarning: message => console.warn(message) })
     const saved = await stateStore.saveFinal(project.id, finalState)
     applyState(saved)
