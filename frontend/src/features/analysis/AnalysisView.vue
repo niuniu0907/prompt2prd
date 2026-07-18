@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, inject, onBeforeUnmount, onMounted, ref } from 'vue'
-import { routeLocationKey } from 'vue-router'
+import { routeLocationKey, useRouter } from 'vue-router'
 
 import {
   createAnalysisClient,
@@ -37,6 +37,7 @@ const props = defineProps<{
 }>()
 
 const route = inject(routeLocationKey, null)
+const router = useRouter()
 const modelConfig = useModelConfigStore()
 const client = props.client ?? createAnalysisClient()
 const stateStore = props.store ?? analysisStateRepository
@@ -51,6 +52,15 @@ const loading = ref(true)
 const errorMessage = ref('')
 
 const pendingQuestions = computed(() => questions.value.filter(item => item.status === 'PENDING'))
+
+const needsModelSetup = computed(() => {
+  const msg = errorMessage.value
+  return msg.includes('模型') || msg.includes('API Key') || msg.includes('Key 来源')
+})
+
+function goToModelSettings() {
+  void router.push({ name: 'model-settings' })
+}
 
 onMounted(async () => {
   try {
@@ -216,6 +226,7 @@ function readableError(error: unknown) {
 
       <div v-if="errorMessage" class="analysis-view__error" role="alert">
         <strong>本次分析未完成</strong><span>{{ errorMessage }}</span>
+        <button v-if="needsModelSetup" type="button" class="button-primary" @click="goToModelSettings">前往模型设置</button>
       </div>
 
       <RequirementSummary :requirements="requirements" />
@@ -237,8 +248,9 @@ function readableError(error: unknown) {
 .analysis-view__header { display: flex; align-items: end; justify-content: space-between; gap: 20px; }
 .analysis-view__header span,.question-preview header span { color: var(--color-accent); font-size: 10px; font-weight: 750; letter-spacing: .08em; }
 .analysis-view__header h1 { margin: 5px 0 0; font-size: 22px; }
-.analysis-view__error { display: grid; gap: 4px; padding: 13px 15px; border: 1px solid #e2bcbc; border-radius: 11px; color: #873f3f; background: #fff8f8; }
+.analysis-view__error { display: grid; gap: 8px; padding: 13px 15px; border: 1px solid #e2bcbc; border-radius: 11px; color: #873f3f; background: #fff8f8; }
 .analysis-view__error span { color: var(--color-text-secondary); font-size: 11px; }
+.analysis-view__error .button-primary { justify-self: start; margin-top: 2px; }
 .question-preview { display: grid; gap: 10px; padding-top: 4px; }
 .question-preview > header { display: flex; align-items: end; justify-content: space-between; gap: 20px; }
 .question-preview h2 { margin: 4px 0 0; font-size: 14px; }

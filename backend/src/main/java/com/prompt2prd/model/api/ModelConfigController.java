@@ -11,6 +11,8 @@ import com.prompt2prd.model.application.ModelConnectionResult;
 import com.prompt2prd.model.application.ModelEndpoint;
 import com.prompt2prd.model.application.ModelGateway;
 import com.prompt2prd.model.application.ModelGatewayException;
+import com.prompt2prd.model.application.ModelListRequest;
+import com.prompt2prd.model.application.ModelListResult;
 import com.prompt2prd.model.domain.ModelConfig;
 import com.prompt2prd.quota.ClientIpDigest;
 import com.prompt2prd.quota.QuotaService;
@@ -77,15 +79,28 @@ public class ModelConfigController {
         }).onErrorMap(ModelGatewayException.class, this::toApiException);
     }
 
+    @PostMapping("/models")
+    public Mono<ModelListResponse> listModels(
+            @Valid @RequestBody ListModelsRequest request,
+            ServerWebExchange exchange) {
+        return Mono.deferContextual(contextView -> {
+            quotaService.checkFrequency(clientIpDigest.from(exchange));
+            String requestId = contextView.getOrDefault(
+                    RequestIdWebFilter.REQUEST_ID_KEY,
+                    UUID.randomUUID().toString());
+            ModelCancellationSignal cancellation = new ModelCancellationSignal();
+            ModelListRequest gatewayRequest = toModelListRequest(request, requestId, cancellation);
+            quotaService.acquireUpstreamCalls(request.keySource(), 1);
+            return modelGateway.listModels(gatewayRequest)
+                    .map(ModelListResponse::success)
+                    .doOnCancel(cancellation::cancel);
+        }).onErrorMap(ModelGatewayException.class, this::toApiException);
+    }
+
     private ModelEndpoint toEndpoint(TestModelConnectionRequest request) {
         try {
             ModelConfig credential = modelProperties.resolve(request.keySource(), request.apiKey());
-            URI baseUrl = switch (request.provider()) {
-                case OPENAI -> ModelProviderPreset.OPENAI.baseUrl();
-                case DEEPSEEK -> ModelProviderPreset.DEEPSEEK.baseUrl();
-                case QWEN -> ModelProviderPreset.QWEN.baseUrl();
-                case CUSTOM -> customBaseUrl(request.baseUrl());
-            };
+            URI baseUrl = resolveBaseUrl(request.provider(), request.baseUrl());
             return new ModelEndpoint(
                     baseUrl,
                     request.model(),
@@ -94,6 +109,30 @@ public class ModelConfigController {
         } catch (IllegalArgumentException | IllegalStateException exception) {
             throw new ApiException.BadRequest("Selected model configuration is invalid");
         }
+    }
+
+    private ModelListRequest toModelListRequest(
+            ListModelsRequest request,
+            String requestId,
+            ModelCancellationSignal cancellation) {
+        try {
+            ModelConfig credential = modelProperties.resolve(request.keySource(), request.apiKey());
+            return new ModelListRequest(
+                    requestId,
+                    resolveBaseUrl(request.provider(), request.baseUrl()),
+                    credential.apiKey(),
+                    cancellation);
+        } catch (IllegalArgumentException | IllegalStateException exception) {
+            throw new ApiException.BadRequest("Selected model configuration is invalid");
+        }
+    }
+
+    private URI resolveBaseUrl(Provider provider, String customBaseUrl) {
+        return switch (provider) {
+            case OPENAI -> ModelProviderPreset.OPENAI.baseUrl();
+            case DEEPSEEK -> ModelProviderPreset.DEEPSEEK.baseUrl();
+            case CUSTOM -> customBaseUrl(customBaseUrl);
+        };
     }
 
     private URI customBaseUrl(String value) {
@@ -132,6 +171,13 @@ public class ModelConfigController {
         }
     }
 
+    public record ListModelsRequest(
+            @NotNull ModelConfig.KeySource keySource,
+            @NotNull Provider provider,
+            String baseUrl,
+            String apiKey) {
+    }
+
     public record ModelConnectionResponse(
             boolean success,
             ModelConfig.KeySource keySource,
@@ -146,10 +192,27 @@ public class ModelConfigController {
         }
     }
 
+    public record ModelListResponse(
+            boolean success,
+            java.util.List<ModelItemResponse> models,
+            long latencyMs) {
+
+        static ModelListResponse success(ModelListResult result) {
+            Duration latency = result.latency();
+            return new ModelListResponse(true,
+                    result.models().stream()
+                            .map(model -> new ModelItemResponse(model.id(), model.displayName()))
+                            .toList(),
+                    latency.toMillis());
+        }
+    }
+
+    public record ModelItemResponse(String id, String displayName) {
+    }
+
     public enum Provider {
         OPENAI,
         DEEPSEEK,
-        QWEN,
         CUSTOM
     }
 }

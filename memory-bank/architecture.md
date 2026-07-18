@@ -119,20 +119,21 @@
 ## AI 与流式边界
 
 - `model/application/ModelGateway` 是业务模块调用模型的唯一生产边界，统一提供完整结构化结果 `Mono`、有序文本块 `Flux` 和连接测试 `Mono`；接口及其请求/结果类型不暴露 Spring AI 或厂商客户端类型。
-- `ModelCallContext` 统一携带 UUID 请求 ID、运行时模型端点和 `ModelCancellationSignal`；端点对象的字符串表示固定隐藏 API Key 和参数值，用户 Key 仍只允许存在于单次请求内存中。
+- `ModelCallContext` 统一携带 UUID 请求 ID、运行时模型端点和 `ModelCancellationSignal`；端点对象的字符串表示固定隐藏 API Key 和参数值。用户 Key 默认只存在于当前标签页 `sessionStorage` 和单次请求内存中；用户显式开启“在此设备记住 Key”后才写入 IndexedDB。
 - 结构化请求通过 `responseType` 与 `outputSchema` 声明完整结果契约，`StructuredModelResult` 不表达半截 JSON；文本流以从 1 开始的序号和请求 ID 返回有序片段。
 - `ModelGatewayException.Kind` 区分不可达、鉴权、模型不存在、限流、格式不兼容、超时、取消和内部错误，供后续适配器与 API 错误协议确定性映射。
 - 测试侧 `FakeModelGateway` 可确定性模拟成功、格式错误、延迟和取消，不访问真实模型；架构测试阻止 `analysis`、`architecture` 和 `generation` 包依赖模型适配器或厂商客户端。
-- `model/adapter/SpringAiModelGateway` 使用 Spring AI 2.0 `OpenAiChatModel` 与 `ChatClient` 实现运行时 OpenAI 兼容调用；OpenAI、DeepSeek、通义千问预设只提供标准兼容地址，自定义服务继续使用同一适配边界。
+- `model/adapter/SpringAiModelGateway` 使用 Spring AI 2.0 `OpenAiChatModel` 与 `ChatClient` 实现运行时 OpenAI 兼容调用；OpenAI、DeepSeek 预设只提供标准兼容地址，其他 OpenAI 兼容服务继续使用同一适配边界。
+- `ModelGateway.listModels()` 通过已校验的 Base URL 和当前 Key 调用对应 OpenAI 兼容服务的 `GET /models`，返回官方模型 ID 与展示友好名称；该请求与连接测试一样经过频率限制、上游调用预算、地址安全策略、禁用重定向和 DNS 固定。
 - 结构化调用通过 `BeanOutputConverter` 在完整响应到达后一次转换为 DTO；同步 Spring AI 调用运行在 bounded-elastic 调度器，文本生成使用 `ChatClient.stream().content()` 保持真实 `Flux` 增量并生成递增片段序号。
 - `EndpointAddressPolicy` 在每次调用前拒绝非 HTTP(S)、内嵌凭据、查询/片段和危险解析地址；公网只允许 HTTPS，本机只有 `localhost`、`127.0.0.1`、`::1` 可使用 HTTP，其他私网 HTTPS 仅在 `PROMPT2PRD_MODEL_PRIVATE_HOST_ALLOWLIST` 显式允许时可用。
 - `SecureOpenAiHttpClient` 将 OkHttp DNS 固定到策略已验证的同一组 IP，并关闭 HTTP/HTTPS 自动重定向与连接失败重试，避免校验后再次解析导致 DNS 重绑定或重定向绕过。
 - `ModelProperties` 只绑定服务端 `PROMPT2PRD_MODEL_SYSTEM_KEY_ENABLED` 与 `PROMPT2PRD_MODEL_SYSTEM_API_KEY`；系统 Key 只有在开关为真且密钥非空时才可用，缺少任一条件均保持关闭。
 - `ModelConfig` 为单次调用保存明确的 `SYSTEM` 或 `USER` 来源并在字符串表示中隐藏密钥；来源解析严格按当前选择执行，用户 Key 无效时不会读取或回退到系统 Key。
-- 前端 `modelConfigStore` 使用未持久化的 Pinia 运行时状态保存用户 Key；新建应用 Store 后 Key 恢复为空，Store 不写 localStorage、sessionStorage 或 IndexedDB，系统 Key 也不会下发到浏览器。
-- `ModelGatewayConfiguration` 将 OpenAI 兼容适配器注册为生产 `ModelGateway`；`ModelConfigController` 提供 `GET /api/model-config` 安全能力查询和 `POST /api/model-config/test` 连接测试，只返回系统 Key 是否可用，不返回系统密钥。
-- 连接测试请求显式携带 `SYSTEM/USER` 来源、服务商、模型名、自定义地址和参数；后端按当前来源解析凭据并调用统一网关，不做来源降级。网关失败映射为统一的不可达、鉴权、模型不存在、限流、格式不兼容和超时错误码。
-- 前端模型设置页提供 OpenAI、DeepSeek、通义千问和自定义兼容服务，展示安全地址限制与 Key 隐私说明；服务商、地址、模型和参数保存在当前 Pinia 运行时，用户 Key 仍只随明确的单次请求发送。
+- 前端 `modelConfigStore` 将用户 Key 默认保存到 `sessionStorage`，刷新页面后保留、关闭标签页后由浏览器清除；用户开启“在此设备记住 Key”后写入 `app_setting.key = rememberedModelApiKey`，并在界面显示本设备安全提示。系统 Key 仍不下发到浏览器。
+- `ModelGatewayConfiguration` 将 OpenAI 兼容适配器注册为生产 `ModelGateway`；`ModelConfigController` 提供 `GET /api/model-config` 安全能力查询、`POST /api/model-config/models` 模型列表获取和 `POST /api/model-config/test` 连接测试，只返回系统 Key 是否可用，不返回系统密钥。
+- 模型列表与连接测试请求显式携带 `SYSTEM/USER` 来源、服务商、模型名或自定义地址和参数；后端按当前来源解析凭据并调用统一网关，不做来源降级。网关失败映射为统一的不可达、鉴权、模型不存在、限流、格式不兼容和超时错误码。
+- 前端模型设置页只提供 DeepSeek、OpenAI 和其他 OpenAI 兼容服务三类服务商。DeepSeek/OpenAI 自动填充 Base URL，普通状态隐藏地址；模型名称由 `GET /models` 结果下拉选择，界面显示友好名称，后续提交使用官方模型 ID。只有模型列表接口不可用或返回空列表时，高级设置中的自定义模型 ID 才可编辑。服务商、Base URL、模型 ID 和 Temperature 保存到 `localStorage`，切换服务商会重置不匹配的 Base URL 与模型。
 - `quota/QuotaService` 是模型代理的额度策略边界：系统 Key 每个 IP 的 UTC 自然日额度固定为 3 次分析和 1 次完整 PRD；用户 Key 绕过免费额度与系统全局预算，但系统/用户两种来源都受每 IP 固定分钟窗口的基础频率限制。
 - 分块分析的调用方只在用户发起分析时调用一次 `beginOperation(...)`，每个真实模型分块另行调用 `acquireUpstreamCalls(...)`；因此一次分块文件只扣一次 IP 分析额度，但全部分块都会进入系统 Key 全局预算。
 - `CaffeineQuotaStore` 以 UTC 日期和固定分钟窗口保存原子计数，缓存有最大容量并自动过期；服务重启会清空额度，当前只保证单实例部署，不声称支持多实例共享。
@@ -163,7 +164,7 @@
 
 ## 安全与运行约束
 
-- 用户 Key 只在前端 Pinia 运行时内存和单次请求中存在；系统 Key 模式默认关闭，且系统 Key 永不下发到前端。
+- 用户 Key 默认保存在前端 `sessionStorage` 和单次请求中；只有用户显式开启本设备记住开关时才写入 IndexedDB。系统 Key 模式默认关闭，且系统 Key 永不下发到前端。
 - 公网模型地址必须 HTTPS；仅本机回环地址允许 HTTP，其他私网地址必须显式加入白名单。
 - 支持最新两个稳定版本的 Chrome、Edge 和 Firefox；Playwright 完整测试使用 Chromium，Firefox 执行创建、澄清、PRD/导出和本地项目核心冒烟测试。
 

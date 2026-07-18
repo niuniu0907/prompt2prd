@@ -21,6 +21,7 @@ import com.prompt2prd.model.application.ModelCancellationSignal;
 import com.prompt2prd.model.application.ModelConnectionRequest;
 import com.prompt2prd.model.application.ModelEndpoint;
 import com.prompt2prd.model.application.ModelGatewayException;
+import com.prompt2prd.model.application.ModelListRequest;
 import com.prompt2prd.model.application.ModelMessage;
 import com.prompt2prd.model.application.StructuredModelRequest;
 import com.prompt2prd.model.application.StructuredModelResult;
@@ -100,6 +101,38 @@ class SpringAiModelGatewayTests {
                     .assertNext(chunk -> assertChunk(chunk, 1, "hello "))
                     .assertNext(chunk -> assertChunk(chunk, 2, "world"))
                     .verifyComplete();
+        }
+    }
+
+    @Test
+    void fetchesModelsWithPinnedGetRequestAndFriendlyNames() throws Exception {
+        AtomicReference<String> method = new AtomicReference<>();
+        AtomicReference<String> authorization = new AtomicReference<>();
+        try (TestServer server = TestServer.start(exchange -> {
+            method.set(exchange.getRequestMethod());
+            authorization.set(exchange.getRequestHeaders().getFirst("Authorization"));
+            respondJson(exchange, """
+                    {"object":"list","data":[
+                      {"id":"deepseek-chat","object":"model"},
+                      {"id":"gpt-4o-mini","object":"model"}
+                    ]}
+                    """);
+        })) {
+            SpringAiModelGateway gateway = new SpringAiModelGateway(new EndpointAddressPolicy(Set.of()));
+
+            var result = gateway.listModels(new ModelListRequest(
+                    UUID.randomUUID().toString(),
+                    URI.create(server.baseUrl()),
+                    "test-key",
+                    new ModelCancellationSignal())).block();
+
+            assertThat(method).hasValue("GET");
+            assertThat(authorization).hasValue("Bearer test-key");
+            assertThat(result).isNotNull();
+            assertThat(result.models()).extracting("id")
+                    .containsExactly("deepseek-chat", "gpt-4o-mini");
+            assertThat(result.models()).extracting("displayName")
+                    .containsExactly("DeepSeek Chat", "GPT 4o Mini");
         }
     }
 
@@ -221,6 +254,15 @@ class SpringAiModelGatewayTests {
         static TestServer start(ThrowingHandler handler) throws IOException {
             HttpServer server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
             server.createContext("/v1/chat/completions", exchange -> {
+                try {
+                    handler.handle(exchange);
+                }
+                catch (Exception ex) {
+                    exchange.close();
+                    throw ex instanceof IOException io ? io : new IOException(ex);
+                }
+            });
+            server.createContext("/v1/models", exchange -> {
                 try {
                     handler.handle(exchange);
                 }

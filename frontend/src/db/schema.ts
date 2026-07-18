@@ -18,7 +18,10 @@ export const PERSISTED_STORE_NAMES = [
 
 export type PersistedStoreName = (typeof PERSISTED_STORE_NAMES)[number]
 
-export type AppSettingKey = 'uploadPrivacyNoticeAccepted' | `analysisCompleteness:${string}`
+export type AppSettingKey =
+  | 'uploadPrivacyNoticeAccepted'
+  | 'rememberedModelApiKey'
+  | `analysisCompleteness:${string}`
 
 export interface AppSettingRecord {
   key: AppSettingKey

@@ -5,6 +5,7 @@ import com.prompt2prd.analysis.domain.CompletenessScore;
 import com.prompt2prd.analysis.domain.ProjectStage;
 import com.prompt2prd.analysis.domain.ProjectSummary;
 import com.prompt2prd.analysis.domain.RequirementState;
+import com.prompt2prd.common.config.JacksonConfiguration;
 import com.prompt2prd.common.config.ModelProperties;
 import com.prompt2prd.model.domain.ModelConfig;
 import com.prompt2prd.quota.ClientIpDigest;
@@ -70,6 +71,71 @@ class AnalysisControllerTests {
                 .exchange()
                 .expectStatus().isOk()
                 .expectHeader().contentTypeCompatibleWith(MediaType.TEXT_EVENT_STREAM);
+    }
+
+    @Test
+    void decodesRawJsonRecordRequestAsEventStream() {
+        AnalysisOrchestrator orchestrator = mock(AnalysisOrchestrator.class);
+        when(orchestrator.analyze(any())).thenAnswer(invocation -> {
+            AnalysisOrchestrator.AnalysisExecution execution = invocation.getArgument(0);
+            StreamEventSequence sequence = new StreamEventSequence(execution.requestId());
+            return Flux.just(sequence.next(StreamEventType.ANALYSIS_STARTED, Map.of("phase", "analysis")));
+        });
+        ModelProperties properties = mock(ModelProperties.class);
+        when(properties.resolve(ModelConfig.KeySource.USER, "user-key"))
+                .thenReturn(ModelConfig.user("user-key"));
+        QuotaService quotaService = mock(QuotaService.class);
+        ClientIpDigest digest = mock(ClientIpDigest.class);
+        when(digest.from(any())).thenReturn("a".repeat(64));
+        AnalysisController controller = new AnalysisController(
+                orchestrator, properties, quotaService, digest);
+        JacksonConfiguration jacksonConfiguration = new JacksonConfiguration();
+        WebTestClient client = WebTestClient.bindToController(controller)
+                .httpMessageCodecs(jacksonConfiguration::configureHttpMessageCodecs)
+                .build();
+
+        client.post().uri("/api/analysis")
+                .contentType(MediaType.APPLICATION_JSON)
+                .accept(MediaType.TEXT_EVENT_STREAM)
+                .bodyValue("""
+                        {
+                          "state": {
+                            "project": {
+                              "id": "11111111-1111-4111-8111-111111111111",
+                              "name": "分析工作台",
+                              "language": "zh-CN",
+                              "stage": "CLARIFYING",
+                              "completeness": 0
+                            },
+                            "requirements": [],
+                            "questions": [],
+                            "answers": [],
+                            "conflicts": [],
+                            "completeness": {
+                              "total": 0,
+                              "dimensions": [],
+                              "pendingCount": 0,
+                              "hasCoreConflict": false
+                            }
+                          },
+                          "input": "创建一个需求分析工作台",
+                          "missingInformation": [],
+                          "modelSettings": {
+                            "keySource": "USER",
+                            "provider": "CUSTOM",
+                            "baseUrl": "http://localhost:11434",
+                            "model": "fixture",
+                            "apiKey": "user-key",
+                            "parameters": {}
+                          }
+                        }
+                        """)
+                .exchange()
+                .expectStatus().isOk()
+                .expectHeader().contentTypeCompatibleWith(MediaType.TEXT_EVENT_STREAM)
+                .expectBody(String.class)
+                .value(body -> org.assertj.core.api.Assertions.assertThat(body)
+                        .contains("event:analysis_started"));
     }
 
     private RequirementState state() {

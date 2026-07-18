@@ -71,8 +71,6 @@ class EndpointAddressPolicyTests {
     void exposesStableProviderPresetAddresses() {
         assertThat(ModelProviderPreset.OPENAI.baseUrl()).hasToString("https://api.openai.com/v1");
         assertThat(ModelProviderPreset.DEEPSEEK.baseUrl()).hasToString("https://api.deepseek.com/v1");
-        assertThat(ModelProviderPreset.QWEN.baseUrl())
-                .hasToString("https://dashscope.aliyuncs.com/compatible-mode/v1");
     }
 
     private static EndpointAddressPolicy policyReturning(String address, Set<String> allowlist) {

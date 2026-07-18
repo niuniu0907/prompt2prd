@@ -94,7 +94,7 @@
 - `2026-07-17` 测试侧 `FakeModelGateway` 可模拟成功、格式错误、延迟和取消；新增架构依赖测试，检查网关签名不暴露厂商类型，并持续扫描 `analysis`、`architecture`、`generation` 源码，禁止直接依赖模型适配器、Spring AI 或厂商客户端。
 - `2026-07-17` 步骤 15 完成后运行 `.\mvnw.cmd test` 成功：后端测试 27 个、失败 0、错误 0、跳过 0；其中模型网关行为测试 8 项、架构边界测试 2 项。
 - `2026-07-17` 步骤 15 最终前端回归成功：17 个测试文件、123 项测试全部通过；本步骤未修改前端业务代码。
-- `2026-07-17` 步骤 16 完成 Spring AI 2.0 OpenAI 兼容适配器：运行时创建 `OpenAiChatModel`/`ChatClient`，统一映射模型名、Bearer 鉴权、温度、top-p、token、停止词和兼容扩展参数；提供 OpenAI、DeepSeek、通义千问预设地址及自定义兼容地址。
+- `2026-07-17` 步骤 16 完成 Spring AI 2.0 OpenAI 兼容适配器：运行时创建 `OpenAiChatModel`/`ChatClient`，统一映射模型名、Bearer 鉴权、温度、top-p、token、停止词和兼容扩展参数；`2026-07-18` 模型配置重构后服务商入口已收敛为 DeepSeek、OpenAI 和其他 OpenAI 兼容服务。
 - `2026-07-17` 步骤 16 的结构化调用只在完整响应到达后通过 `BeanOutputConverter` 产生正式 DTO；文本调用保持 `Flux` 真实流式片段并携带请求 ID 与递增序号；连接测试复用相同安全传输和当前明确配置。
 - `2026-07-17` 模型地址安全策略拒绝非 HTTP(S)、内嵌凭据、公网 HTTP、未授权私网/链路本地/云元数据地址；本机仅 `localhost`、`127.0.0.1`、`::1` 允许 HTTP，其他私网 HTTPS 需 `PROMPT2PRD_MODEL_PRIVATE_HOST_ALLOWLIST`。实际 HTTP 客户端固定使用预检 IP 并关闭自动重定向，防止 DNS 重绑定和重定向绕过。
 - `2026-07-17` 步骤 16 本地模拟服务测试覆盖请求地址、模型名、参数、Authorization、结构化分段响应、文本流、重定向未命中目标；地址单元测试覆盖公网 HTTP、私网、云元数据、显式白名单和 DNS 重绑定。后端回归共 37 项测试通过、失败 0、错误 0、跳过 0；前端回归 17 个测试文件、123 项测试通过。
@@ -103,7 +103,7 @@
 - `2026-07-17` 步骤 17 后端完整回归 44 项测试通过；四种系统 Key 环境状态、显式用户来源不回退和密钥字符串脱敏专项测试 7 项通过。前端完整回归 18 个测试文件、127 项测试通过，严格类型检查与 Vite 生产构建成功；生产类/前端产物及测试报告扫描未发现测试密钥明文。
 - `2026-07-17` 步骤 18 实现 `GET /api/model-config` 与 `POST /api/model-config/test`：前者只返回系统 Key 能力开关，后者按当前明确的 Key 来源构建运行时端点并调用 `ModelGateway.testConnection()`；生产网关通过独立配置类接入 Spring AI 适配器。
 - `2026-07-17` 连接测试将不可达、鉴权、模型不存在、限流、格式不兼容和超时映射到现有稳定错误协议；响应、日志和生产产物不包含请求 Key。后端接口专项 7 项通过，完整后端回归 51 项通过。
-- `2026-07-17` 前端模型设置导航已启用，新增 `/settings/model` 页面、OpenAI/DeepSeek/通义千问/自定义服务配置、系统/用户 Key 选择、Temperature 和连接结果分类提示。当前服务商、地址、模型和参数保存在 Pinia 运行时，失败不会切换 Key 来源。
+- `2026-07-17` 前端模型设置导航已启用，新增 `/settings/model` 页面、常用 OpenAI 兼容服务配置、系统/用户 Key 选择、Temperature 和连接结果分类提示。`2026-07-18` 模型配置重构后，页面已收敛为 DeepSeek、OpenAI 和其他 OpenAI 兼容服务，并按新的存储边界保存配置。
 - `2026-07-17` 步骤 18 前端完整回归 20 个测试文件、134 项测试通过，严格 TypeScript 检查和 Vite 生产构建成功；生产产物与测试报告扫描未发现步骤 18 测试密钥明文。
 - `2026-07-17` 步骤 19 按测试先行完成：额度存储与策略测试先以缺少 `QuotaProperties`、`CaffeineQuotaStore`、`QuotaService` 和 `ClientIpDigest` 得到预期编译失败，额度接口测试随后以缺少 `QuotaController` 得到预期编译失败，再补齐实现。
 - `2026-07-17` 已建立 Caffeine 单实例额度存储：系统 Key 每 IP 每个 UTC 自然日默认最多 3 次分析和 1 次完整 PRD；分块分析只调用一次操作扣减，但每个真实上游调用都单独进入默认 100 次/日的进程级全局预算。计数原子更新、容量有界、旧日期与频率窗口自动过期，服务重启后清空。
@@ -158,6 +158,10 @@
 - `2026-07-18` 步骤 53 新增 `frontend/e2e/generate-prd.spec.ts`，覆盖技术约束、2～3 个架构候选、确认主架构、主/异常流程图、PRD 流、停止、重新生成、编辑/预览、校验导出和右侧面板收起。
 - `2026-07-18` 步骤 54 新增 `frontend/e2e/local-projects.spec.ts`，覆盖两个项目隔离、重命名、复制、归档、回收站、恢复、单项目永久删除、多次刷新和空状态；不提供批量清空回收站。
 - `2026-07-18` 端到端验证完成：普通沙箱下 Playwright 浏览器启动因 `spawn EPERM` 失败，按权限规则提升后 `npm --prefix frontend run test:e2e:chromium` 36 项全部通过；补齐 Firefox PRD/导出冒烟覆盖后，`npm --prefix frontend run test:e2e:firefox` 30 项全部通过。Vite webServer 日志出现 IndexedDB 删除时关闭旧连接的 warning，来源是测试清库流程，不影响通过结果。
+- `2026-07-18` 模型配置体验重构完成：服务商收敛为 DeepSeek、OpenAI 和其他 OpenAI 兼容服务；DeepSeek/OpenAI 自动填充 Base URL 并将 Base URL 放入高级设置，普通状态不再暴露；模型名称改为从后端模型列表接口返回的下拉项，展示友好名称并保留官方模型 ID 用于提交。
+- `2026-07-18` 后端新增 `ModelGateway.listModels()` 与 `POST /api/model-config/models`，通过当前 Key 与当前服务商 Base URL 调用对应 OpenAI 兼容服务的 `GET /models`；模型列表请求同样经过频率限制、上游调用预算、地址安全策略、禁用重定向和 DNS 固定。列表接口不可用或返回空列表时，前端才允许在高级设置中手动填写模型 ID。
+- `2026-07-18` 前端 `modelConfigStore` 调整持久化边界：用户 Key 默认写入 `sessionStorage`，刷新保留、关闭标签页清除；“在此设备记住 Key”开启后才写入 Dexie `app_setting.key = rememberedModelApiKey` 并显示安全提示。服务商、Base URL、模型 ID 和 Temperature 写入 `localStorage`，切换服务商会重置不匹配的 Base URL 与模型，连接测试成功后显示“已连接”状态。
+- `2026-07-18` 本次模型配置重构验证通过：`npm --prefix frontend run test -- modelConfigStore ModelSettingsPanel modelConfigApi` 14 项通过，`npm --prefix frontend run typecheck` 通过，`npm --prefix frontend run test` 46 个测试文件、231 项全部通过，`.\mvnw.cmd test` 后端 199 项全部通过，`npm --prefix frontend run build` 生产构建通过；构建仅保留 Vite 大 chunk 体积提示。
 
 ## 下一步
 

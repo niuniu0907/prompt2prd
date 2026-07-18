@@ -1,14 +1,18 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { storeToRefs } from 'pinia'
 
 import {
   ModelConfigApiError,
   modelConfigClient,
+  type AvailableModel,
   type ModelConfigClient,
   type ModelConnectionInput,
+  type ModelListInput,
 } from '@/api/modelConfigApi'
 import {
+  presetBaseUrl,
+  providerLabels,
   useModelConfigStore,
   type ModelKeyError,
   type ModelProvider,
@@ -20,26 +24,41 @@ const store = useModelConfigStore()
 const {
   selectedKeySource,
   userApiKey,
+  rememberApiKey,
   systemKeyAvailable,
   provider,
   baseUrl,
   model,
   temperature,
+  connected,
 } = storeToRefs(store)
 const loadingCapabilities = ref(true)
+const loadingModels = ref(false)
 const testing = ref(false)
 const capabilityError = ref('')
+const modelListError = ref('')
 const resultMessage = ref('')
 const errorMessage = ref('')
+const availableModels = ref<AvailableModel[]>([])
+const manualModelAllowed = ref(false)
 
-const providers: Array<{ value: ModelProvider; label: string; endpoint: string }> = [
-  { value: 'OPENAI', label: 'OpenAI', endpoint: 'https://api.openai.com/v1' },
-  { value: 'DEEPSEEK', label: 'DeepSeek', endpoint: 'https://api.deepseek.com/v1' },
-  { value: 'QWEN', label: '通义千问', endpoint: 'https://dashscope.aliyuncs.com/compatible-mode/v1' },
-  { value: 'CUSTOM', label: '自定义兼容服务', endpoint: '' },
+const providers: Array<{ value: ModelProvider; label: string }> = [
+  { value: 'DEEPSEEK', label: 'DeepSeek' },
+  { value: 'OPENAI', label: 'OpenAI' },
+  { value: 'CUSTOM', label: '其他 OpenAI 兼容服务' },
 ]
 
-const selectedProvider = computed(() => providers.find((item) => item.value === provider.value)!)
+const hasUsableCredential = computed(() => {
+  if (selectedKeySource.value === 'SYSTEM') return systemKeyAvailable.value
+  return Boolean(userApiKey.value.trim())
+})
+
+const canFetchModels = computed(() => {
+  if (!hasUsableCredential.value) return false
+  if (provider.value === 'CUSTOM' && !baseUrl.value.trim()) return false
+  return !loadingCapabilities.value
+})
+
 const canTest = computed(() => {
   if (!model.value.trim()) return false
   if (provider.value === 'CUSTOM' && !baseUrl.value.trim()) return false
@@ -51,13 +70,76 @@ onMounted(async () => {
   try {
     const capabilities = await client.getCapabilities()
     store.setSystemKeyAvailable(capabilities.systemKeyAvailable)
+    await store.loadRememberedApiKey()
   } catch {
     capabilityError.value = '无法读取服务端模型配置，系统 Key 模式保持关闭。'
     store.setSystemKeyAvailable(false)
   } finally {
     loadingCapabilities.value = false
+    await refreshModels()
   }
 })
+
+watch(
+  () => [selectedKeySource.value, userApiKey.value, provider.value, baseUrl.value],
+  () => {
+    resultMessage.value = ''
+    errorMessage.value = ''
+    void refreshModels()
+  },
+)
+
+function selectProvider(value: string) {
+  store.setProvider(value as ModelProvider)
+  void refreshModels()
+}
+
+function selectModel(value: string) {
+  store.setModel(value)
+}
+
+function scheduleRefreshModels() {
+  void Promise.resolve().then(refreshModels)
+}
+
+async function setRemember(value: boolean) {
+  try {
+    await store.setRememberApiKey(value)
+  } catch {
+    errorMessage.value = 'Key 记住设置保存失败，请检查浏览器本地数据权限。'
+  }
+}
+
+async function refreshModels() {
+  if (!canFetchModels.value) {
+    availableModels.value = []
+    manualModelAllowed.value = false
+    modelListError.value = ''
+    return
+  }
+  loadingModels.value = true
+  modelListError.value = ''
+  manualModelAllowed.value = false
+  try {
+    const result = await client.listModels(listModelsInput())
+    availableModels.value = result.models
+    if (result.models.length === 0) {
+      manualModelAllowed.value = true
+      modelListError.value = '服务返回的模型列表为空，可在高级设置中手动填写模型 ID。'
+      return
+    }
+    if (!result.models.some((item) => item.id === model.value)) {
+      store.setModel(result.models[0]!.id)
+    }
+  } catch (error) {
+    availableModels.value = []
+    manualModelAllowed.value = true
+    const category = error instanceof ModelConfigApiError ? error.code : 'INTERNAL_ERROR'
+    modelListError.value = mapModelListError(category)
+  } finally {
+    loadingModels.value = false
+  }
+}
 
 async function testConnection() {
   if (!canTest.value) return
@@ -76,7 +158,8 @@ async function testConnection() {
 
   try {
     const result = await client.testConnection(input)
-    resultMessage.value = `连接成功：${result.model}，耗时 ${result.latencyMs} ms`
+    store.markConnected()
+    resultMessage.value = `已连接：${friendlyModelName(result.model)}，配置已保存。`
   } catch (error) {
     const category = error instanceof ModelConfigApiError ? error.code : 'INTERNAL_ERROR'
     const mapped = mapError(category)
@@ -84,6 +167,33 @@ async function testConnection() {
     errorMessage.value = mapped.message
   } finally {
     testing.value = false
+  }
+}
+
+function listModelsInput(): ModelListInput {
+  const input: ModelListInput = {
+    keySource: selectedKeySource.value,
+    provider: provider.value,
+  }
+  if (provider.value === 'CUSTOM') input.baseUrl = baseUrl.value.trim()
+  if (selectedKeySource.value === 'USER') input.apiKey = userApiKey.value
+  return input
+}
+
+function friendlyModelName(modelId: string): string {
+  return availableModels.value.find((item) => item.id === modelId)?.displayName ?? modelId
+}
+
+function mapModelListError(code: string): string {
+  switch (code) {
+    case 'UNAUTHORIZED':
+      return '无法获取模型列表：鉴权失败。修正 Key 后会重新获取；暂时可在高级设置中手动填写模型 ID。'
+    case 'SERVICE_UNAVAILABLE':
+      return '模型列表接口不可用，可在高级设置中手动填写模型 ID。'
+    case 'RATE_LIMIT_EXCEEDED':
+      return '模型列表接口被限流，可稍后重试，或临时手动填写模型 ID。'
+    default:
+      return '模型列表接口暂不可用，可在高级设置中手动填写模型 ID。'
   }
 }
 
@@ -115,9 +225,11 @@ function mapError(code: string): { storeError: ModelKeyError; message: string } 
       <div>
         <p>模型连接</p>
         <h1>模型设置</h1>
-        <span>选择本次分析使用的 OpenAI 兼容服务与 Key 来源。</span>
+        <span>选择服务商，填写 Key 后自动获取可用模型。</span>
       </div>
-      <span class="runtime-badge">仅运行时</span>
+      <span class="runtime-badge" :class="{ 'runtime-badge--connected': connected }">
+        {{ connected ? '已连接' : '未连接' }}
+      </span>
     </header>
 
     <p v-if="capabilityError" class="notice notice--warning" role="alert">{{ capabilityError }}</p>
@@ -133,7 +245,7 @@ function mapError(code: string): { storeError: ModelKeyError; message: string } 
             data-key-source="USER"
             @change="store.selectKeySource('USER')"
           />
-          <span><strong>用户 Key</strong><small>只用于当前浏览器运行时和本次请求</small></span>
+          <span><strong>用户 Key</strong><small>默认保存到当前标签页会话，关闭标签页后清除</small></span>
         </label>
         <label v-if="systemKeyAvailable" class="choice-card">
           <input
@@ -150,19 +262,36 @@ function mapError(code: string): { storeError: ModelKeyError; message: string } 
       <label v-if="selectedKeySource === 'USER'" class="field">
         <span>API Key</span>
         <input
-          :value="userApiKey"
+          v-model="userApiKey"
           type="password"
           autocomplete="off"
-          placeholder="输入当前请求使用的 Key"
+          placeholder="输入当前服务商的 Key"
           data-testid="api-key-input"
-          @input="store.setUserApiKey(($event.target as HTMLInputElement).value)"
+          @input="scheduleRefreshModels"
         />
       </label>
+
+      <label v-if="selectedKeySource === 'USER'" class="switch-field">
+        <input
+          :checked="rememberApiKey"
+          type="checkbox"
+          data-testid="remember-key-toggle"
+          @change="setRemember(($event.target as HTMLInputElement).checked)"
+        />
+        <span>在此设备记住 Key</span>
+      </label>
+      <p v-if="selectedKeySource === 'USER' && rememberApiKey" class="notice notice--security">
+        Key 将保存在此浏览器的 IndexedDB 中。只在个人可信设备开启，清理站点数据会删除它。
+      </p>
 
       <div class="field-grid">
         <label class="field">
           <span>模型服务</span>
-          <select v-model="provider" data-testid="provider-select">
+          <select
+            :value="provider"
+            data-testid="provider-select"
+            @change="selectProvider(($event.target as HTMLSelectElement).value)"
+          >
             <option v-for="item in providers" :key="item.value" :value="item.value">
               {{ item.label }}
             </option>
@@ -170,37 +299,68 @@ function mapError(code: string): { storeError: ModelKeyError; message: string } 
         </label>
         <label class="field">
           <span>模型名称</span>
-          <input v-model="model" data-testid="model-input" placeholder="例如模型服务提供的模型 ID" />
+          <select
+            v-if="availableModels.length > 0 && !manualModelAllowed"
+            :value="model"
+            data-testid="model-select"
+            @change="selectModel(($event.target as HTMLSelectElement).value)"
+          >
+            <option v-for="item in availableModels" :key="item.id" :value="item.id">
+              {{ item.displayName }}
+            </option>
+          </select>
+          <input
+            v-else
+            :value="model"
+            data-testid="model-display"
+            disabled
+            :placeholder="loadingModels ? '正在获取模型列表…' : '填写 Key 后自动获取模型列表'"
+          />
         </label>
       </div>
 
-      <label v-if="provider === 'CUSTOM'" class="field">
-        <span>兼容服务地址</span>
-        <input
-          v-model="baseUrl"
-          data-testid="base-url-input"
-          placeholder="https://example.com/v1"
-        />
-        <small>公网必须使用 HTTPS；仅 localhost、127.0.0.1 和 ::1 可使用 HTTP。</small>
-      </label>
-      <div v-else class="preset-endpoint">
-        <span>预设服务地址</span>
-        <code>{{ selectedProvider.endpoint }}</code>
-      </div>
+      <p v-if="modelListError" class="notice notice--warning" role="alert">{{ modelListError }}</p>
 
       <label class="field field--narrow">
         <span>Temperature</span>
         <input
-          v-model.number="temperature"
+          :value="temperature"
           type="number"
           min="0"
           max="2"
           step="0.1"
           data-testid="temperature-input"
+          @input="store.setTemperature(Number(($event.target as HTMLInputElement).value))"
         />
       </label>
 
-      <p class="privacy-note">用户 Key 不会写入项目数据、浏览器存储或服务端日志，刷新页面后自动清除。</p>
+      <details class="advanced-settings">
+        <summary>高级设置</summary>
+        <label class="field">
+          <span>Base URL</span>
+          <input
+            v-model="baseUrl"
+            :disabled="provider !== 'CUSTOM'"
+            data-testid="base-url-input"
+            placeholder="https://example.com/v1"
+            @input="scheduleRefreshModels"
+          />
+          <small v-if="provider !== 'CUSTOM'">{{ providerLabels[provider] }} 会自动使用此地址。</small>
+          <small v-else>公网必须使用 HTTPS；仅 localhost、127.0.0.1 和 ::1 可使用 HTTP。</small>
+        </label>
+
+        <label class="field">
+          <span>自定义模型 ID</span>
+          <input
+            :value="model"
+            :disabled="!manualModelAllowed"
+            data-testid="manual-model-input"
+            placeholder="仅当模型列表不可用时填写"
+            @input="store.setModel(($event.target as HTMLInputElement).value)"
+          />
+          <small>正常情况下请使用上方模型下拉；只有模型列表接口不可用时才允许手动填写。</small>
+        </label>
+      </details>
 
       <div class="settings-actions">
         <button
@@ -210,7 +370,7 @@ function mapError(code: string): { storeError: ModelKeyError; message: string } 
           data-testid="test-connection"
           @click="testConnection"
         >
-          {{ testing ? '正在测试…' : '测试连接' }}
+          {{ testing ? '正在测试…' : '测试连接并保存' }}
         </button>
         <p v-if="resultMessage" class="test-result test-result--success" role="status">{{ resultMessage }}</p>
         <p v-if="errorMessage" class="test-result test-result--error" role="alert">{{ errorMessage }}</p>
@@ -263,6 +423,10 @@ function mapError(code: string): { storeError: ModelKeyError; message: string } 
   background: var(--color-accent-soft);
 }
 
+.runtime-badge--connected {
+  background: #e7f6d2;
+}
+
 .settings-card {
   display: grid;
   gap: 22px;
@@ -283,8 +447,7 @@ fieldset {
 }
 
 legend,
-.field > span,
-.preset-endpoint > span {
+.field > span {
   margin-bottom: 9px;
   color: var(--color-text-primary);
   font-size: 12px;
@@ -301,7 +464,7 @@ legend {
   gap: 10px;
   padding: 14px;
   border: 1px solid var(--color-border);
-  border-radius: 11px;
+  border-radius: 8px;
   cursor: pointer;
 }
 
@@ -326,8 +489,7 @@ legend {
   line-height: 1.45;
 }
 
-.field,
-.preset-endpoint {
+.field {
   display: grid;
 }
 
@@ -342,9 +504,14 @@ legend {
   min-height: 42px;
   padding: 0 12px;
   border: 1px solid var(--color-border-strong);
-  border-radius: 9px;
+  border-radius: 8px;
   color: var(--color-text-primary);
   background: var(--color-surface);
+}
+
+.field input:disabled {
+  color: var(--color-text-secondary);
+  background: var(--color-surface-muted);
 }
 
 .field small {
@@ -355,25 +522,32 @@ legend {
   max-width: 190px;
 }
 
-.preset-endpoint {
-  padding: 13px 14px;
-  border-radius: 10px;
+.switch-field {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--color-text-primary);
+  font-size: 13px;
+}
+
+.advanced-settings {
+  display: grid;
+  gap: 16px;
+  padding: 14px;
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
   background: var(--color-surface-muted);
 }
 
-.preset-endpoint code {
-  color: var(--color-text-secondary);
-  font-size: 12px;
+.advanced-settings[open] {
+  gap: 18px;
 }
 
-.privacy-note {
-  margin: 0;
-  padding: 12px 14px;
-  border-left: 3px solid var(--color-accent);
-  color: var(--color-text-secondary);
-  font-size: 11px;
-  line-height: 1.55;
-  background: var(--color-accent-soft);
+.advanced-settings summary {
+  cursor: pointer;
+  color: var(--color-text-primary);
+  font-size: 13px;
+  font-weight: 700;
 }
 
 .settings-actions {
@@ -404,9 +578,18 @@ legend {
 }
 
 .notice {
+  margin: 0;
   padding: 12px 14px;
   border: 1px solid #ead0b8;
-  border-radius: 10px;
+  border-radius: 8px;
   background: #fffaf3;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.notice--security {
+  border-color: #c9d9aa;
+  color: #415b32;
+  background: #f7fbe8;
 }
 </style>

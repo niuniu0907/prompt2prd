@@ -15,6 +15,24 @@ export interface ModelConnectionInput {
   parameters?: Record<string, unknown>
 }
 
+export interface ModelListInput {
+  keySource: ModelKeySource
+  provider: ModelProvider
+  baseUrl?: string
+  apiKey?: string
+}
+
+export interface AvailableModel {
+  id: string
+  displayName: string
+}
+
+export interface ModelListResult {
+  success: true
+  models: AvailableModel[]
+  latencyMs: number
+}
+
 export interface ModelConnectionResult {
   success: true
   keySource: ModelKeySource
@@ -24,6 +42,7 @@ export interface ModelConnectionResult {
 
 export interface ModelConfigClient {
   getCapabilities(): Promise<ModelCapabilities>
+  listModels(input: ModelListInput): Promise<ModelListResult>
   testConnection(input: ModelConnectionInput): Promise<ModelConnectionResult>
 }
 
@@ -50,6 +69,14 @@ export function createModelConfigClient(fetcher: FetchLike = fetch): ModelConfig
     async getCapabilities() {
       const response = await fetcher('/api/model-config')
       return readJson<ModelCapabilities>(response)
+    },
+    async listModels(input) {
+      const response = await fetcher('/api/model-config/models', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(input),
+      })
+      return readJson<ModelListResult>(response)
     },
     async testConnection(input) {
       const response = await fetcher('/api/model-config/test', {

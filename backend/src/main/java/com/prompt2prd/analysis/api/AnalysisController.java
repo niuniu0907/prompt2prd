@@ -13,6 +13,7 @@ import com.prompt2prd.quota.ClientIpDigest;
 import com.prompt2prd.quota.QuotaOperation;
 import com.prompt2prd.quota.QuotaService;
 import com.prompt2prd.stream.StreamEvent;
+import com.prompt2prd.stream.StreamEventSequence;
 import jakarta.validation.Valid;
 import org.springframework.http.MediaType;
 import org.springframework.http.codec.ServerSentEvent;
@@ -81,8 +82,19 @@ public class AnalysisController {
                     clientIpDigest.from(exchange), settings.keySource(), QuotaOperation.ANALYSIS);
             quotaService.acquireUpstreamCalls(settings.keySource(), 1);
             ModelCancellationSignal cancellation = new ModelCancellationSignal();
-            ModelCallContext modelContext = new ModelCallContext(
-                    requestId, toEndpoint(settings), cancellation);
+
+            ModelEndpoint endpoint;
+            try {
+                endpoint = toEndpoint(settings);
+            } catch (RuntimeException exception) {
+                StreamEventSequence fallback = new StreamEventSequence(requestId);
+                return Flux.just(toSse(fallback.next(
+                        com.prompt2prd.stream.StreamEventType.GENERATION_FAILED,
+                        java.util.Map.of("errorCode", "INVALID_CONFIGURATION",
+                                "retryable", false))));
+            }
+
+            ModelCallContext modelContext = new ModelCallContext(requestId, endpoint, cancellation);
             AnalysisOrchestrator.AnalysisExecution execution = new AnalysisOrchestrator.AnalysisExecution(
                     requestId, modelContext, state, input, answers, gaps);
             return orchestrator.analyze(execution).map(this::toSse);

@@ -120,7 +120,7 @@
 ### 步骤 16：实现 OpenAI 兼容适配器
 
 - **文件：** 创建 `backend/src/main/java/com/prompt2prd/model/adapter/SpringAiModelGateway.java` 及适配器测试。
-- **指令：** 使用 Spring AI `ChatClient` 支持 OpenAI、DeepSeek、通义千问预设及自定义兼容地址；只允许 HTTP/HTTPS、禁止内嵌凭据和自动重定向，公网必须 HTTPS，仅本机回环地址允许 HTTP，其他私网地址必须在环境变量白名单中；请求前校验解析后 IP。结构化结果完整聚合后再转换，文本结果保持流式。
+- **指令：** 使用 Spring AI `ChatClient` 支持 DeepSeek、OpenAI 预设及其他 OpenAI 兼容地址；只允许 HTTP/HTTPS、禁止内嵌凭据和自动重定向，公网必须 HTTPS，仅本机回环地址允许 HTTP，其他私网地址必须在环境变量白名单中；请求前校验解析后 IP。结构化结果完整聚合后再转换，文本结果保持流式。
 - **验证：** 使用本地模拟服务验证地址、模型名、参数和鉴权头映射；覆盖公网 HTTP、私网、云元数据地址、DNS 重绑定、重定向和白名单场景；确认结构化响应未完成前不会输出正式业务结果。
 
 ### 步骤 17：实现 Key 来源与配置安全

@@ -1,10 +1,13 @@
 package com.prompt2prd.model.api;
 
 import com.prompt2prd.common.config.ModelProperties;
+import com.prompt2prd.model.application.AvailableModel;
 import com.prompt2prd.model.application.ModelConnectionRequest;
 import com.prompt2prd.model.application.ModelConnectionResult;
 import com.prompt2prd.model.application.ModelGateway;
 import com.prompt2prd.model.application.ModelGatewayException;
+import com.prompt2prd.model.application.ModelListRequest;
+import com.prompt2prd.model.application.ModelListResult;
 import com.prompt2prd.model.domain.ModelConfig;
 import com.prompt2prd.quota.ClientIpDigest;
 import com.prompt2prd.quota.QuotaService;
@@ -20,6 +23,7 @@ import org.springframework.test.web.reactive.server.WebTestClient;
 import reactor.core.publisher.Mono;
 
 import java.time.Duration;
+import java.util.List;
 import java.util.stream.Stream;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -108,6 +112,44 @@ class ModelConfigControllerTests {
         assertThat(captured.context().endpoint().apiKey()).isEqualTo(USER_KEY);
         assertThat(captured.context().endpoint().parameters()).containsEntry("temperature", 0.2);
         verify(modelProperties).resolve(ModelConfig.KeySource.USER, USER_KEY);
+        verify(quotaService).checkFrequency("test-ip-digest");
+        verify(quotaService).acquireUpstreamCalls(ModelConfig.KeySource.USER, 1);
+    }
+
+    @Test
+    void listsModelsThroughTheSelectedProviderWithoutEchoingCredentials() {
+        when(modelProperties.resolve(ModelConfig.KeySource.USER, USER_KEY))
+                .thenReturn(ModelConfig.user(USER_KEY));
+        when(modelGateway.listModels(any()))
+                .thenReturn(Mono.just(new ModelListResult(List.of(
+                        new AvailableModel("deepseek-chat", "DeepSeek Chat"),
+                        new AvailableModel("deepseek-reasoner", "DeepSeek Reasoner")
+                ), Duration.ofMillis(42))));
+
+        webTestClient.post()
+                .uri("/api/model-config/models")
+                .contentType(MediaType.APPLICATION_JSON)
+                .bodyValue("""
+                        {
+                          "keySource": "USER",
+                          "provider": "DEEPSEEK",
+                          "apiKey": "sk-controller-secret"
+                        }
+                        """)
+                .exchange()
+                .expectStatus().isOk()
+                .expectBody()
+                .jsonPath("$.success").isEqualTo(true)
+                .jsonPath("$.models[0].id").isEqualTo("deepseek-chat")
+                .jsonPath("$.models[0].displayName").isEqualTo("DeepSeek Chat")
+                .jsonPath("$.latencyMs").isEqualTo(42)
+                .jsonPath("$.apiKey").doesNotExist();
+
+        var requestCaptor = org.mockito.ArgumentCaptor.forClass(ModelListRequest.class);
+        verify(modelGateway).listModels(requestCaptor.capture());
+        ModelListRequest captured = requestCaptor.getValue();
+        assertThat(captured.baseUrl().toString()).isEqualTo("https://api.deepseek.com/v1");
+        assertThat(captured.apiKey()).isEqualTo(USER_KEY);
         verify(quotaService).checkFrequency("test-ip-digest");
         verify(quotaService).acquireUpstreamCalls(ModelConfig.KeySource.USER, 1);
     }

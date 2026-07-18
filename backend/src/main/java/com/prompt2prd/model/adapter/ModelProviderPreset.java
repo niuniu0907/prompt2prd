@@ -6,8 +6,7 @@ import java.net.URI;
 public enum ModelProviderPreset {
 
     OPENAI("https://api.openai.com/v1"),
-    DEEPSEEK("https://api.deepseek.com/v1"),
-    QWEN("https://dashscope.aliyuncs.com/compatible-mode/v1");
+    DEEPSEEK("https://api.deepseek.com/v1");
 
     private final URI baseUrl;
 

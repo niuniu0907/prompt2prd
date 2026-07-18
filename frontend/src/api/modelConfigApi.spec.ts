@@ -11,14 +11,14 @@ describe('modelConfigApi', () => {
     const fetcher = vi.fn(async () => new Response(JSON.stringify({
       success: true,
       keySource: 'USER',
-      model: 'qwen-plus',
+      model: 'gpt-4o-mini',
       latencyMs: 24,
     }), { status: 200, headers: { 'Content-Type': 'application/json' } }))
     const client = createModelConfigClient(fetcher)
     const input: ModelConnectionInput = {
       keySource: 'USER',
-      provider: 'QWEN',
-      model: 'qwen-plus',
+      provider: 'OPENAI',
+      model: 'gpt-4o-mini',
       apiKey: 'sk-runtime-request',
       parameters: { temperature: 0.4 },
     }
@@ -26,12 +26,38 @@ describe('modelConfigApi', () => {
     await expect(client.testConnection(input)).resolves.toEqual({
       success: true,
       keySource: 'USER',
-      model: 'qwen-plus',
+      model: 'gpt-4o-mini',
       latencyMs: 24,
     })
     expect(fetcher).toHaveBeenCalledWith('/api/model-config/test', expect.objectContaining({
       method: 'POST',
       body: JSON.stringify(input),
+    }))
+  })
+
+  it('fetches available models without putting credentials in the URL', async () => {
+    const fetcher = vi.fn(async () => new Response(JSON.stringify({
+      success: true,
+      models: [{ id: 'deepseek-chat', displayName: 'DeepSeek Chat' }],
+      latencyMs: 18,
+    }), { status: 200, headers: { 'Content-Type': 'application/json' } }))
+    const client = createModelConfigClient(fetcher)
+
+    await expect(client.listModels({
+      keySource: 'USER',
+      provider: 'DEEPSEEK',
+      apiKey: 'sk-model-list',
+    })).resolves.toMatchObject({
+      models: [{ id: 'deepseek-chat', displayName: 'DeepSeek Chat' }],
+    })
+
+    expect(fetcher).toHaveBeenCalledWith('/api/model-config/models', expect.objectContaining({
+      method: 'POST',
+      body: JSON.stringify({
+        keySource: 'USER',
+        provider: 'DEEPSEEK',
+        apiKey: 'sk-model-list',
+      }),
     }))
   })
 

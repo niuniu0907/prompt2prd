@@ -18,4 +18,11 @@ public interface ModelGateway {
 
     /** Verifies that the selected endpoint, credentials, and model are usable. */
     Mono<ModelConnectionResult> testConnection(ModelConnectionRequest request);
+
+    /** Fetches available model IDs from the selected OpenAI-compatible service. */
+    default Mono<ModelListResult> listModels(ModelListRequest request) {
+        return Mono.error(new ModelGatewayException(
+                ModelGatewayException.Kind.INTERNAL,
+                "Model listing is not implemented by this gateway"));
+    }
 }

@@ -22,7 +22,6 @@ public record FlowchartModelSettings(
     public enum Provider {
         OPENAI("https://api.openai.com/v1"),
         DEEPSEEK("https://api.deepseek.com/v1"),
-        QWEN("https://dashscope.aliyuncs.com/compatible-mode/v1"),
         CUSTOM(null);
 
         private final String presetBaseUrl;

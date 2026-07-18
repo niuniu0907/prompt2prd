@@ -1,6 +1,10 @@
-import { createPinia, setActivePinia } from 'pinia'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import 'fake-indexeddb/auto'
 
+import Dexie from 'dexie'
+import { createPinia, setActivePinia } from 'pinia'
+import { beforeEach, describe, expect, it } from 'vitest'
+
+import { createAppDatabase } from '@/db/appDatabase'
 import { useModelConfigStore } from './modelConfigStore'
 
 describe('modelConfigStore', () => {
@@ -10,34 +14,73 @@ describe('modelConfigStore', () => {
     sessionStorage.clear()
   })
 
-  it('keeps a user API key only in the current Pinia runtime', () => {
-    const localStorageWrite = vi.spyOn(Storage.prototype, 'setItem')
+  it('keeps a user API key in sessionStorage by default across a fresh store', () => {
     const store = useModelConfigStore()
 
-    store.setUserApiKey('sk-runtime-only')
+    store.setUserApiKey('sk-session-only')
 
-    expect(store.userApiKey).toBe('sk-runtime-only')
+    expect(store.userApiKey).toBe('sk-session-only')
     expect(store.requestKeyConfig).toEqual({
       keySource: 'USER',
-      apiKey: 'sk-runtime-only',
+      apiKey: 'sk-session-only',
     })
-    expect(localStorageWrite).not.toHaveBeenCalled()
-    expect(localStorage.length).toBe(0)
-    expect(sessionStorage.length).toBe(0)
-  })
-
-  it('loses the user API key after a fresh application store is created', () => {
-    useModelConfigStore().setUserApiKey('sk-cleared-by-refresh')
 
     setActivePinia(createPinia())
-    const refreshedStore = useModelConfigStore()
+    expect(useModelConfigStore().userApiKey).toBe('sk-session-only')
+    expect(localStorage.getItem('prompt2prd:model-api-key')).toBeNull()
+  })
 
-    expect(refreshedStore.userApiKey).toBe('')
-    expect(refreshedStore.selectedKeySource).toBe('USER')
-    expect(refreshedStore.requestKeyConfig).toEqual({
-      keySource: 'USER',
-      apiKey: '',
+  it('persists provider base URL model and temperature to localStorage', () => {
+    const store = useModelConfigStore()
+
+    store.setProvider('CUSTOM')
+    store.setBaseUrl('http://localhost:11434/v1')
+    store.setModel('local-model')
+    store.setTemperature(0.6)
+
+    setActivePinia(createPinia())
+    expect(useModelConfigStore()).toMatchObject({
+      provider: 'CUSTOM',
+      baseUrl: 'http://localhost:11434/v1',
+      model: 'local-model',
+      temperature: 0.6,
     })
+  })
+
+  it('resets preset base URL and model when the provider changes', () => {
+    const store = useModelConfigStore()
+
+    store.setProvider('CUSTOM')
+    store.setBaseUrl('http://localhost:11434/v1')
+    store.setModel('local-model')
+    store.setProvider('OPENAI')
+
+    expect(store.baseUrl).toBe('https://api.openai.com/v1')
+    expect(store.model).toBe('')
+  })
+
+  it('can remember and clear the user API key in Dexie only after explicit opt-in', async () => {
+    const database = createAppDatabase(`model-store-${crypto.randomUUID()}`)
+    const store = useModelConfigStore()
+    store.setUserApiKey('sk-remembered')
+
+    await store.setRememberApiKey(true, database)
+
+    const record = await database.app_setting.get('rememberedModelApiKey')
+    expect(record?.value).toEqual({ apiKey: 'sk-remembered' })
+
+    setActivePinia(createPinia())
+    sessionStorage.clear()
+    const refreshedStore = useModelConfigStore()
+    await refreshedStore.loadRememberedApiKey(database)
+
+    expect(refreshedStore.rememberApiKey).toBe(true)
+    expect(refreshedStore.userApiKey).toBe('sk-remembered')
+
+    await refreshedStore.setRememberApiKey(false, database)
+    expect(await database.app_setting.get('rememberedModelApiKey')).toBeUndefined()
+    await database.close()
+    await Dexie.delete(database.name)
   })
 
   it('shows and selects system key mode only when the backend reports it available', () => {
@@ -62,21 +105,6 @@ describe('modelConfigStore', () => {
 
     expect(store.selectedKeySource).toBe('SYSTEM')
     expect(store.lastKeyError).toBe('AUTHENTICATION_FAILED')
-  })
-
-  it('keeps the selected endpoint configuration in the current runtime store', () => {
-    const store = useModelConfigStore()
-
-    store.provider = 'CUSTOM'
-    store.baseUrl = 'http://localhost:11434/v1'
-    store.model = 'local-model'
-    store.temperature = 0.6
-
-    expect(useModelConfigStore()).toMatchObject({
-      provider: 'CUSTOM',
-      baseUrl: 'http://localhost:11434/v1',
-      model: 'local-model',
-      temperature: 0.6,
-    })
+    expect(store.connected).toBe(false)
   })
 })
