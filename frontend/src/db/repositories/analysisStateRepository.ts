@@ -7,6 +7,7 @@ import type {
   RequirementItem,
   RequirementStateSnapshot,
 } from '@/features/requirements/types'
+import { isArchitectureCandidateRequirement } from '@/features/requirements/requirementDisplay'
 import { appDatabase, type AppDatabase } from '../appDatabase'
 
 export interface AnalysisState extends RequirementStateSnapshot {
@@ -86,6 +87,10 @@ export class AnalysisStateRepository implements AnalysisStateStore {
       async () => {
         const current = await this.database.project.get(projectId)
         if (!current) throw new Error(`Project ${projectId} not found`)
+        const currentRequirements = await this.database.requirement_item.where('projectId').equals(projectId).toArray()
+        const incomingIds = new Set(state.requirements.map(item => item.id))
+        const preservedArchitectureCandidates = currentRequirements
+          .filter(item => isArchitectureCandidateRequirement(item) && !incomingIds.has(item.id))
         const now = new Date().toISOString()
         const project: Project = {
           ...current,
@@ -106,12 +111,13 @@ export class AnalysisStateRepository implements AnalysisStateStore {
           value: state.completeness,
           updatedAt: now,
         })
-        if (state.requirements.length) await this.database.requirement_item.bulkAdd(state.requirements)
+        const requirements = [...state.requirements, ...preservedArchitectureCandidates]
+        if (requirements.length) await this.database.requirement_item.bulkAdd(requirements)
         if (state.questions.length) await this.database.clarification_question.bulkAdd(state.questions)
         if (state.answers.length) await this.database.clarification_answer.bulkAdd(state.answers)
         if (state.conflicts.length) await this.database.requirement_conflict.bulkAdd(state.conflicts)
 
-        return { ...state, project }
+        return { ...state, project, requirements }
       },
     )
   }

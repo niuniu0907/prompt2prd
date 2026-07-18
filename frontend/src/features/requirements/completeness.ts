@@ -1,7 +1,7 @@
 import type { ClarificationQuestion, CompletenessDimension, CompletenessScore, RequirementConflict, RequirementItem, RequirementType } from './types'
 
 const weights: Record<string, number> = { PRODUCT_SCOPE:10, ROLES_PERMISSIONS:8, CORE_FLOW:15, FEATURES:12, BUSINESS_RULES:10, EXCEPTIONS:8, DATA_MODEL:10, ARCHITECTURE_CONSTRAINTS:12, PAGES_APIS:8, ACCEPTANCE:7 }
-const typeDimensions: Partial<Record<RequirementType, string>> = { PRODUCT_GOAL:'PRODUCT_SCOPE', ROLE:'ROLES_PERMISSIONS', USER_STORY:'CORE_FLOW', FEATURE:'FEATURES', BUSINESS_RULE:'BUSINESS_RULES', EXCEPTION_SCENARIO:'EXCEPTIONS', DATA_MODEL:'DATA_MODEL', TECHNICAL_CONSTRAINT:'ARCHITECTURE_CONSTRAINTS', PAGE:'PAGES_APIS', API:'PAGES_APIS', ACCEPTANCE_CRITERION:'ACCEPTANCE' }
+const typeDimensions: Partial<Record<RequirementType, string>> = { PRODUCT_GOAL:'PRODUCT_SCOPE', ROLE:'ROLES_PERMISSIONS', USER_STORY:'CORE_FLOW', FEATURE:'FEATURES', BUSINESS_RULE:'BUSINESS_RULES', EXCEPTION_SCENARIO:'EXCEPTIONS', DATA_MODEL:'DATA_MODEL', TECHNICAL_CONSTRAINT:'ARCHITECTURE_CONSTRAINTS', NON_FUNCTIONAL_REQUIREMENT:'ARCHITECTURE_CONSTRAINTS', PAGE:'PAGES_APIS', API:'PAGES_APIS', ACCEPTANCE_CRITERION:'ACCEPTANCE' }
 
 export function calculateCompleteness(requirements: RequirementItem[], questions: ClarificationQuestion[], conflicts: RequirementConflict[]): CompletenessScore {
   const effectiveRequirements = requirements.filter(item =>

@@ -60,7 +60,31 @@ class SpringAiModelGatewayTests {
                     .contains("\"model\":\"test-model\"")
                     .contains("\"temperature\":0.25")
                     .contains("\"top_p\":0.8")
-                    .contains("\"custom_flag\":true");
+                    .contains("\"custom_flag\":true")
+                    .contains("\"json_schema\"");
+        }
+    }
+
+    @Test
+    void deepSeekStructuredRequestsUseJsonObjectCompatibilityMode() throws Exception {
+        AtomicReference<String> requestBody = new AtomicReference<>();
+        try (TestServer server = TestServer.start(exchange -> {
+            requestBody.set(readBody(exchange));
+            respondJson(exchange, completion("{\"name\":\"ready\"}"));
+        })) {
+            SpringAiModelGateway gateway = new SpringAiModelGateway(new EndpointAddressPolicy(Set.of()));
+
+            StructuredModelResult<DemoResult> result = gateway
+                    .generateStructured(structuredRequest(server.baseUrl(), "deepseek-chat"))
+                    .block();
+
+            assertThat(result).isNotNull();
+            assertThat(result.value().name()).isEqualTo("ready");
+            assertThat(requestBody.get())
+                    .contains("\"model\":\"deepseek-chat\"")
+                    .contains("\"response_format\":{\"type\":\"json_object\"}")
+                    .contains("Return only valid JSON matching the requested schema")
+                    .doesNotContain("\"json_schema\"");
         }
     }
 
@@ -161,9 +185,13 @@ class SpringAiModelGatewayTests {
     }
 
     private static StructuredModelRequest<DemoResult> structuredRequest(String baseUrl) {
+        return structuredRequest(baseUrl, "test-model");
+    }
+
+    private static StructuredModelRequest<DemoResult> structuredRequest(String baseUrl, String model) {
         ModelEndpoint endpoint = new ModelEndpoint(
                 URI.create(baseUrl),
-                "test-model",
+                model,
                 "test-key",
                 Map.of("temperature", 0.25, "top_p", 0.8, "custom_flag", true));
         return new StructuredModelRequest<>(

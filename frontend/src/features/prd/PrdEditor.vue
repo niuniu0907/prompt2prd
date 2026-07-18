@@ -51,8 +51,10 @@ const charCount = computed(() => editContent.value.length)
 <style scoped>
 .editor {
   display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto;
   gap: 8px;
   height: 100%;
+  min-height: 0;
 }
 .editor-header {
   display: flex;
@@ -71,8 +73,8 @@ const charCount = computed(() => editContent.value.length)
 }
 .editor-textarea {
   width: 100%;
-  min-height: 300px;
-  flex: 1;
+  min-height: 460px;
+  height: 100%;
   padding: 12px;
   border: 1px solid var(--color-border);
   border-radius: 7px;

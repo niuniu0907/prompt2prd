@@ -51,6 +51,17 @@ onBeforeUnmount(() => {
 const activeSection = computed(() =>
   sections.value.find(s => s.sectionKey === activeKey.value) ?? null,
 )
+const completedCount = computed(() => sections.value.filter(section => section.status === 'COMPLETED').length)
+const failedCount = computed(() => sections.value.filter(section => section.status === 'FAILED').length)
+const generatingCount = computed(() => sections.value.filter(section => section.status === 'GENERATING').length)
+const draftCount = computed(() => sections.value.filter(section => section.status === 'DRAFT').length)
+const activeStatusLabel = computed(() => {
+  const status = activeSection.value?.status
+  if (status === 'COMPLETED') return '已完成'
+  if (status === 'GENERATING') return '生成中'
+  if (status === 'FAILED') return '生成失败'
+  return '尚未开始'
+})
 
 const activeContent = computed(() => {
   if (!activeKey.value) return ''
@@ -244,7 +255,7 @@ function readable(error: unknown) {
       <div>
         <span>PRD 文档</span>
         <h1>AI-ready PRD</h1>
-        <p>17 个章节按序生成；编辑/预览切换，本地自动保存。</p>
+        <p>17 个章节按序生成，当前章节在右侧统一编辑、预览和保存。</p>
       </div>
       <div class="heading-actions">
         <button
@@ -263,6 +274,13 @@ function readable(error: unknown) {
 
     <div v-if="errorMessage" class="error" role="alert" data-testid="prd-error">{{ errorMessage }}</div>
     <div v-if="warnMessage" class="warning" data-testid="prd-warning">{{ warnMessage }}</div>
+
+    <section v-if="!loading" class="prd-status" aria-label="PRD章节状态">
+      <article><span>已完成</span><strong>{{ completedCount }}/{{ sections.length }}</strong></article>
+      <article><span>生成中</span><strong>{{ generatingCount }}</strong></article>
+      <article :class="{ blocked: failedCount > 0 }"><span>失败</span><strong>{{ failedCount }}</strong></article>
+      <article><span>未开始</span><strong>{{ draftCount }}</strong></article>
+    </section>
 
     <div v-if="!loading" class="prd-layout">
       <aside class="prd-sidebar" data-testid="prd-sidebar">
@@ -284,6 +302,11 @@ function readable(error: unknown) {
 
         <template v-else>
           <div class="mode-bar">
+            <div class="active-section-info">
+              <strong>{{ activeSection.order }}. {{ activeSection.title }}</strong>
+              <span>{{ activeStatusLabel }} · {{ activeContent.length }} 字符</span>
+            </div>
+            <div class="mode-switch">
             <button
               type="button"
               :class="{ active: mode === 'edit' }"
@@ -300,6 +323,7 @@ function readable(error: unknown) {
             >
               预览
             </button>
+            </div>
             <div class="mode-bar-spacer"></div>
             <button
               type="button"
@@ -402,12 +426,13 @@ function readable(error: unknown) {
 }
 .prd-layout {
   display: grid;
-  grid-template-columns: 260px 1fr;
+  grid-template-columns: 340px minmax(0, 1fr);
   gap: 16px;
-  min-height: 400px;
+  min-height: calc(100vh - 250px);
 }
 .prd-sidebar {
-  padding: 8px;
+  min-width: 0;
+  padding: 10px;
   border: 1px solid var(--color-border);
   border-radius: 9px;
   background: var(--color-surface);
@@ -415,19 +440,49 @@ function readable(error: unknown) {
 .prd-main {
   display: grid;
   gap: 10px;
-  padding: 12px;
+  grid-template-rows: auto minmax(0, 1fr);
+  padding: 14px;
   border: 1px solid var(--color-border);
   border-radius: 9px;
   background: var(--color-surface);
-  min-height: 350px;
+  min-height: 560px;
+  min-width: 0;
 }
 .mode-bar {
   display: flex;
   align-items: center;
   gap: 8px;
+  min-width: 0;
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--color-border);
+}
+.active-section-info {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+.active-section-info strong {
+  color: var(--color-text-primary);
+  font-size: 13px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.active-section-info span {
+  color: var(--color-text-secondary);
+  font-size: 11px;
+}
+.mode-switch {
+  display: flex;
+  gap: 4px;
+  padding: 3px;
+  border: 1px solid var(--color-border);
+  border-radius: 7px;
+  background: var(--color-background);
 }
 .mode-bar button {
-  padding: 4px 12px;
+  min-height: 30px;
+  padding: 0 12px;
   border: 1px solid var(--color-border);
   border-radius: 5px;
   background: var(--color-surface);
@@ -447,5 +502,38 @@ function readable(error: unknown) {
 }
 .regen-btn {
   color: #873f3f;
+}
+.prd-status {
+  display: grid;
+  grid-template-columns: repeat(4,minmax(0,1fr));
+  gap: 10px;
+}
+.prd-status article {
+  display: grid;
+  gap: 6px;
+  padding: 12px 13px;
+  border: 1px solid var(--color-border);
+  border-radius: 9px;
+  background: var(--color-surface);
+}
+.prd-status span {
+  color: var(--color-text-secondary);
+  font-size: 11px;
+}
+.prd-status strong {
+  color: var(--color-text-primary);
+  font-size: 15px;
+}
+.prd-status .blocked {
+  border-color: #e2bcbc;
+  background: #fff8f8;
+}
+.prd-status .blocked strong {
+  color: #873f3f;
+}
+@media (max-width: 1180px) {
+  .prd-layout {
+    grid-template-columns: 1fr;
+  }
 }
 </style>

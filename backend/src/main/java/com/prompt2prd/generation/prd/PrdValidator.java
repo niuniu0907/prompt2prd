@@ -11,14 +11,15 @@ import java.util.regex.Pattern;
 
 /**
  * Deterministic consistency checks for a complete PRD.
- * Validates stable IDs, cross-references, architecture presence, and section completeness.
+ * Validates stable IDs, cross-references, concise technical decisions, and section completeness.
  */
 public final class PrdValidator {
 
     private static final Pattern STABLE_ID = Pattern.compile(
             "(REQ|US|BR|API|PAGE|AC|PHASE)-\\d{3}");
-    private static final Pattern ARCHITECTURE_MARKER = Pattern.compile(
-            "(Vue|React|Angular|Svelte|Next\\.js|Nuxt|Spring Boot|Django|FastAPI|Express|Flask|Go|Rust)");
+    private static final Pattern DETAILED_ARCHITECTURE_MARKER = Pattern.compile(
+            "(详细架构|架构比较|评分矩阵|总分|/35|学习成本|开发速度|未选择原因|deployment topology|system design)",
+            Pattern.CASE_INSENSITIVE);
 
     private PrdValidator() {
     }
@@ -37,7 +38,7 @@ public final class PrdValidator {
         validateSectionsExist(sections, errors);
         List<String> allIds = collectStableIds(sections, errors);
         validateCrossReferences(allIds, sections, errors);
-        validateArchitecturePresence(sections, confirmedArchitectureId, errors, warnings);
+        validateTechnicalDecisionSummary(sections, confirmedArchitectureId, warnings);
         validateAcceptanceSection(sections, errors);
         validateImplementationPhases(sections, errors);
         validateNoCandidateArchitectureLeak(sections, warnings);
@@ -107,20 +108,18 @@ public final class PrdValidator {
         }
     }
 
-    private static void validateArchitecturePresence(
-            Map<String, String> sections, String confirmedArchitectureId,
-            List<String> errors, List<String> warnings) {
+    private static void validateTechnicalDecisionSummary(
+            Map<String, String> sections, String confirmedArchitectureId, List<String> warnings) {
         String archContent = sections.getOrDefault("architecture", "");
         if (archContent.isBlank()) {
-            errors.add("架构章节为空");
             return;
         }
-        if (!ARCHITECTURE_MARKER.matcher(archContent).find()) {
-            warnings.add("架构章节未发现已知技术栈标记");
+        if (DETAILED_ARCHITECTURE_MARKER.matcher(archContent).find()) {
+            warnings.add("技术决策摘要疑似包含详细架构设计或评分比较，应移至技术方案文档");
         }
         if (confirmedArchitectureId != null && !confirmedArchitectureId.isBlank()
                 && !archContent.contains(confirmedArchitectureId)) {
-            warnings.add("架构章节未引用已确认的架构 ID");
+            warnings.add("技术决策摘要未引用已确认的架构 ID");
         }
     }
 

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { inject } from 'vue'
+import { computed, inject, onBeforeUnmount, ref } from 'vue'
 import { routerKey } from 'vue-router'
 
 import type { ProjectListFilter } from '@/db/repositories/projectRepository'
@@ -13,14 +13,58 @@ withDefaults(defineProps<{ activeSection?: AppSection }>(), {
 defineEmits<{ navigate: [section: ProjectListFilter] }>()
 
 const router = inject(routerKey, null)
+const SIDEBAR_WIDTH_KEY = 'prompt2prd:layout:appSidebarWidth'
+const sidebarWidth = ref(readStoredWidth(SIDEBAR_WIDTH_KEY, 244, 196, 380))
+const resizingSidebar = ref(false)
+const shellColumns = computed(() => `${sidebarWidth.value}px 7px minmax(0, 1fr)`)
+
+let startX = 0
+let startWidth = 0
 
 function openModelSettings() {
   void router?.push({ name: 'model-settings' })
 }
+
+function readStoredWidth(key: string, fallback: number, min: number, max: number) {
+  const raw = window.localStorage.getItem(key)
+  const parsed = raw ? Number.parseInt(raw, 10) : Number.NaN
+  return clamp(Number.isFinite(parsed) ? parsed : fallback, min, max)
+}
+
+function clamp(value: number, min: number, max: number) {
+  return Math.max(min, Math.min(max, Math.round(value)))
+}
+
+function startSidebarResize(event: MouseEvent) {
+  resizingSidebar.value = true
+  startX = event.clientX
+  startWidth = sidebarWidth.value
+  document.body.style.cursor = 'col-resize'
+  document.body.style.userSelect = 'none'
+  window.addEventListener('mousemove', resizeSidebar)
+  window.addEventListener('mouseup', stopSidebarResize)
+}
+
+function resizeSidebar(event: MouseEvent) {
+  if (!resizingSidebar.value) return
+  sidebarWidth.value = clamp(startWidth + event.clientX - startX, 196, 380)
+}
+
+function stopSidebarResize() {
+  if (!resizingSidebar.value) return
+  resizingSidebar.value = false
+  window.localStorage.setItem(SIDEBAR_WIDTH_KEY, String(sidebarWidth.value))
+  document.body.style.cursor = ''
+  document.body.style.userSelect = ''
+  window.removeEventListener('mousemove', resizeSidebar)
+  window.removeEventListener('mouseup', stopSidebarResize)
+}
+
+onBeforeUnmount(stopSidebarResize)
 </script>
 
 <template>
-  <div class="app-shell">
+  <div class="app-shell" :style="{ gridTemplateColumns: shellColumns }">
     <aside class="app-sidebar">
       <div class="brand" aria-label="Prompt2PRD">
         <span class="brand__mark" aria-hidden="true">
@@ -95,6 +139,16 @@ function openModelSettings() {
       </div>
     </aside>
 
+    <div
+      class="app-shell__resizer"
+      :class="{ 'app-shell__resizer--active': resizingSidebar }"
+      role="separator"
+      aria-label="调整全局导航宽度"
+      aria-orientation="vertical"
+      data-testid="app-sidebar-resizer"
+      @mousedown.prevent="startSidebarResize"
+    ></div>
+
     <section class="app-shell__content">
       <slot />
     </section>
@@ -104,7 +158,6 @@ function openModelSettings() {
 <style scoped>
 .app-shell {
   display: grid;
-  grid-template-columns: 244px minmax(0, 1fr);
   min-height: 100vh;
   background: var(--color-background);
 }
@@ -118,6 +171,30 @@ function openModelSettings() {
   padding: 22px 16px 18px;
   border-right: 1px solid var(--color-border);
   background: var(--color-surface);
+}
+
+.app-shell__resizer {
+  position: sticky;
+  top: 0;
+  z-index: 8;
+  height: 100vh;
+  cursor: col-resize;
+  background: transparent;
+}
+
+.app-shell__resizer::before {
+  display: block;
+  width: 1px;
+  height: 100%;
+  margin: 0 auto;
+  background: var(--color-border);
+  content: "";
+}
+
+.app-shell__resizer:hover::before,
+.app-shell__resizer--active::before {
+  width: 3px;
+  background: var(--color-accent);
 }
 
 .brand {
@@ -260,10 +337,6 @@ function openModelSettings() {
 }
 
 @media (max-width: 1080px) {
-  .app-shell {
-    grid-template-columns: 220px minmax(0, 1fr);
-  }
-
   .app-sidebar {
     padding-inline: 12px;
   }

@@ -48,6 +48,8 @@ import org.springframework.ai.chat.messages.UserMessage;
 import org.springframework.ai.chat.model.ChatResponse;
 import org.springframework.ai.converter.BeanOutputConverter;
 import org.springframework.ai.openai.OpenAiChatModel;
+import org.springframework.ai.openai.OpenAiChatModel.ResponseFormat;
+import org.springframework.ai.openai.OpenAiChatModel.ResponseFormat.Type;
 import org.springframework.ai.openai.OpenAiChatOptions;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
@@ -78,7 +80,7 @@ public final class SpringAiModelGateway implements ModelGateway {
                             BeanOutputConverter<T> converter = new BeanOutputConverter<>(request.responseType());
                             ResponseEntity<ChatResponse, T> response = client.chatClient()
                                     .prompt()
-                                    .messages(toSpringMessages(request.messages()))
+                                    .messages(toSpringMessages(structuredMessages(request)))
                                     .call()
                                     .responseEntity(converter);
                             return new StructuredModelResult<>(response.entity(), responseModel(response.response(),
@@ -282,7 +284,11 @@ public final class SpringAiModelGateway implements ModelGateway {
             builder.extraBody(extraBody);
         }
         if (outputSchema != null) {
-            builder.outputSchema(outputSchema);
+            if (usesJsonObjectStructuredMode(endpoint)) {
+                builder.responseFormat(ResponseFormat.builder().type(Type.JSON_OBJECT).build());
+            } else {
+                builder.outputSchema(outputSchema);
+            }
         }
         return builder.build();
     }
@@ -314,6 +320,25 @@ public final class SpringAiModelGateway implements ModelGateway {
             case USER -> new UserMessage(message.content());
             case ASSISTANT -> new AssistantMessage(message.content());
         }).map(Message.class::cast).toList();
+    }
+
+    private static <T> List<ModelMessage> structuredMessages(StructuredModelRequest<T> request) {
+        if (!usesJsonObjectStructuredMode(request.context().endpoint())) {
+            return request.messages();
+        }
+        List<ModelMessage> messages = new ArrayList<>();
+        messages.add(new ModelMessage(ModelMessage.Role.SYSTEM,
+                "Return only valid JSON matching the requested schema. "
+                        + "Do not include Markdown, code fences, comments, or explanatory text. "
+                        + "JSON schema: " + request.outputSchema()));
+        messages.addAll(request.messages());
+        return messages;
+    }
+
+    private static boolean usesJsonObjectStructuredMode(ModelEndpoint endpoint) {
+        String host = normalizeHost(endpoint.baseUrl().getHost());
+        String model = endpoint.model().toLowerCase(Locale.ROOT);
+        return host.equals("api.deepseek.com") || host.endsWith(".deepseek.com") || model.startsWith("deepseek-");
     }
 
     private static String responseModel(ChatResponse response, String fallback) {
@@ -355,6 +380,7 @@ public final class SpringAiModelGateway implements ModelGateway {
         }
         if (cause instanceof OpenAIServiceException service) {
             ModelGatewayException.Kind kind = switch (service.statusCode()) {
+                case 400, 422 -> ModelGatewayException.Kind.FORMAT_INCOMPATIBLE;
                 case 401, 403 -> ModelGatewayException.Kind.AUTHENTICATION;
                 case 404 -> ModelGatewayException.Kind.MODEL_NOT_FOUND;
                 case 408, 504 -> ModelGatewayException.Kind.TIMEOUT;

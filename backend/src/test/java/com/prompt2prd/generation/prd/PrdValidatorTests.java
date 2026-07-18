@@ -64,7 +64,7 @@ class PrdValidatorTests {
     }
 
     @Test
-    void emptyArchitectureSectionIsError() {
+    void emptyTechnicalDecisionSummaryIsAllowed() {
         Map<String, String> sections = allSectionsWith(
                 "REQ-001 核心功能\nUS-001 用户故事\nBR-001 业务规则\nAPI-001 接口\nPAGE-001 页面\nAC-001 验收条件\nPHASE-001 阶段一");
         sections.put("acceptance",
@@ -72,7 +72,20 @@ class PrdValidatorTests {
         sections.put("architecture", "");
         sections.put("implementation-phases", "PHASE-001 基础框架搭建。");
         var report = PrdValidator.validate(sections, "arch-1");
-        assertThat(report.errors()).anyMatch(error -> error.contains("架构章节为空"));
+        assertThat(report.valid()).isTrue();
+        assertThat(report.errors()).isEmpty();
+    }
+
+    @Test
+    void warnsWhenTechnicalSummaryContainsDetailedArchitecture() {
+        Map<String, String> sections = allSectionsWith(
+                "REQ-001 核心功能\nUS-001 用户故事\nBR-001 业务规则\nAPI-001 接口\nPAGE-001 页面\nAC-001 验收条件\nPHASE-001 阶段一");
+        sections.put("acceptance",
+                "AC-001 Given 用户已登录 When 点击按钮 Then 显示结果。");
+        sections.put("architecture", "Vue 3 + Spring Boot，总分 30/35，学习成本 5/5，未选择原因：其他方案不匹配。");
+        sections.put("implementation-phases", "PHASE-001 基础框架搭建。");
+        var report = PrdValidator.validate(sections, "arch-1");
+        assertThat(report.warnings()).anyMatch(warning -> warning.contains("详细架构设计或评分比较"));
     }
 
     private Map<String, String> allSectionsWith(String content) {

@@ -37,6 +37,9 @@ public final class PrdGenerator {
                 .filter(this::isArchitecture)
                 .toList();
         RequirementItem selectedArchitecture = architectures.size() == 1 ? architectures.getFirst() : null;
+        List<RequirementItem> prdRequirements = confirmed.stream()
+                .filter(item -> !isArchitecture(item))
+                .toList();
 
         List<String> missing = new ArrayList<>();
         if (requestedMissing != null) requestedMissing.stream().filter(Objects::nonNull)
@@ -64,9 +67,9 @@ public final class PrdGenerator {
                 : List.of(PrdDefinition.requireSection(sectionKey));
         List<PrdGenerationPlan.SectionPlan> sections = definitions.stream()
                 .map(definition -> new PrdGenerationPlan.SectionPlan(
-                        definition, prompt(state, definition, mode, missingItems, confirmed, selectedArchitecture)))
+                        definition, prompt(state, definition, mode, missingItems, prdRequirements, selectedArchitecture)))
                 .toList();
-        return new PrdGenerationPlan(mode, sections, missingItems, confirmed, selectedArchitecture);
+        return new PrdGenerationPlan(mode, sections, missingItems, prdRequirements, selectedArchitecture);
     }
 
     public Flux<TextModelChunk> streamSection(
@@ -78,7 +81,9 @@ public final class PrdGenerator {
                 new ModelMessage(ModelMessage.Role.SYSTEM,
                         "Generate one implementation-ready PRD section. Never modify requirement state. "
                                 + "Use stable IDs and only the directive words MUST, SHOULD, and MUST NOT. "
-                                + "Never present pending content as confirmed."),
+                                + "Never present pending content as confirmed. "
+                                + "Keep architecture content to a concise technical decision summary; do not generate "
+                                + "architecture comparisons, scoring matrices, deployment topology, or system design documents."),
                 new ModelMessage(ModelMessage.Role.USER, section.prompt())));
         return modelGateway.streamText(request);
     }
@@ -101,11 +106,22 @@ public final class PrdGenerator {
                 + "\nSection=" + definition.key().wireName() + " | " + definition.title()
                 + "\nCompleteness=" + state.completeness().total()
                 + "\nConfirmed requirements=" + confirmed
-                + "\nSelected architecture=" + (selectedArchitecture == null ? "UNCONFIRMED" : selectedArchitecture)
+                + "\nConfirmed technical decisions=" + technicalDecisionSummary(selectedArchitecture)
                 + "\nMissing or pending items=" + missing
                 + "\nRules: every requirement/rule/API/page/acceptance/phase uses a stable ID; "
                 + "every core feature links to a user story, business rule, and acceptance criterion; "
                 + "implementation directives use MUST, SHOULD, or MUST NOT; "
-                + "draft mode must visibly label unresolved facts and must not invent final architecture details.";
+                + "PRD technical content must be a short decision summary and engineering constraint list, "
+                + "not a detailed architecture design; "
+                + "draft mode must visibly label unresolved facts and must not invent final technical decisions.";
+    }
+
+    private String technicalDecisionSummary(RequirementItem selectedArchitecture) {
+        if (selectedArchitecture == null) {
+            return "UNCONFIRMED";
+        }
+        return "id=" + selectedArchitecture.id()
+                + ", title=" + selectedArchitecture.title()
+                + ", constraints=" + selectedArchitecture.content();
     }
 }

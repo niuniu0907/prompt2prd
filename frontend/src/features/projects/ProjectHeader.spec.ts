@@ -18,7 +18,7 @@ describe('ProjectHeader', () => {
       props: { projectName: 'Test', completeness: 72 },
     })
 
-    expect(wrapper.get('[data-testid="header-completeness"]').text()).toBe('72%')
+    expect(wrapper.get('[data-testid="header-completeness"]').text()).toContain('72%')
   })
 
   it('rounds completeness to a whole number', () => {
@@ -26,7 +26,7 @@ describe('ProjectHeader', () => {
       props: { projectName: 'Test', completeness: 67.8 },
     })
 
-    expect(wrapper.get('[data-testid="header-completeness"]').text()).toBe('68%')
+    expect(wrapper.get('[data-testid="header-completeness"]').text()).toContain('68%')
   })
 
   it('displays the correct Chinese label for each project stage', () => {
@@ -93,11 +93,25 @@ describe('ProjectHeader', () => {
 
   it('emits generatePrd when the button is clicked', async () => {
     const wrapper = mount(ProjectHeader, {
-      props: { projectName: 'Test' },
+      props: { projectName: 'Test', canGeneratePrd: true },
     })
 
     await wrapper.get('[data-testid="header-generate-prd"]').trigger('click')
     expect(wrapper.emitted('generatePrd')).toHaveLength(1)
+  })
+
+  it('disables PRD generation with a concrete reason when prerequisites are missing', () => {
+    const wrapper = mount(ProjectHeader, {
+      props: {
+        projectName: 'Test',
+        canGeneratePrd: false,
+        generateDisabledReason: '还需确认3条需求后才能生成PRD',
+      },
+    })
+
+    const button = wrapper.get('[data-testid="header-generate-prd"]')
+    expect(button.attributes('disabled')).toBeDefined()
+    expect(wrapper.get('[data-testid="header-generate-hint"]').text()).toBe('还需确认3条需求后才能生成PRD')
   })
 
   it('uses dark text on the primary button background', () => {

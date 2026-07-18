@@ -5,16 +5,22 @@ import type { ClarificationQuestion } from '@/features/requirements/types'
 import QuestionBatch from './QuestionBatch.vue'
 
 describe('QuestionBatch', () => {
-  it('supports every input type, custom answers, notes, impacts, and one batch submission', async () => {
+  it('supports selectable answers, custom answers, notes, impacts, legacy fallbacks, and one batch submission', async () => {
     const wrapper = mount(QuestionBatch, { props: { questions: questions() } })
 
+    expect(wrapper.text()).toContain('本轮追问 4 个问题')
+    expect(wrapper.text()).toContain('已回答 0/4')
+    expect(wrapper.get('[data-testid="submit-batch"]').attributes('disabled')).toBeDefined()
     expect(wrapper.text()).toContain('影响：需要资质审核')
+    expect(wrapper.text()).toContain('旧版本生成的无选项问题')
     await wrapper.get('[data-testid="option-role-11"]').setValue(true)
     await wrapper.get('[data-testid="custom-role"]').setValue('也允许救助站')
     await wrapper.get('[data-testid="note-role"]').setValue('先做白名单')
+    expect(wrapper.text()).toContain('已回答 1/4')
     await wrapper.get('[data-testid="option-pay-22"]').setValue(true)
-    await wrapper.get('[data-testid="text-refund"]').setValue('7 天内退款')
+    await wrapper.get('[data-testid="option-refund-:0"]').setValue(true)
     await wrapper.get('[data-testid="option-audit-44"]').setValue(true)
+    expect(wrapper.get('[data-testid="submit-batch"]').text()).toBe('提交回答，让 AI 继续追问')
     await wrapper.get('[data-testid="submit-batch"]').trigger('click')
 
     const emitted = wrapper.emitted('submit')?.[0]?.[0] as Array<Record<string, unknown>>
@@ -27,7 +33,8 @@ describe('QuestionBatch', () => {
       skipped: false,
     })
     expect(emitted[1]?.selectedOptionIds).toEqual(['00000000-0000-4000-8000-000000000022'])
-    expect(emitted[2]?.customAnswer).toBe('7 天内退款')
+    expect(emitted[2]?.selectedOptionIds).toEqual([])
+    expect(emitted[2]?.customAnswer).toBe('采用常见默认规则')
     expect(wrapper.emitted('submit')).toHaveLength(1)
   })
 

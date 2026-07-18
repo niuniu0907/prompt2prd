@@ -2,6 +2,7 @@ package com.prompt2prd.analysis.application;
 
 import com.prompt2prd.analysis.domain.RequirementState;
 import com.prompt2prd.model.application.ModelCallContext;
+import com.prompt2prd.model.application.ModelGatewayException;
 import com.prompt2prd.stream.StreamEvent;
 import com.prompt2prd.stream.StreamEventSequence;
 import com.prompt2prd.stream.StreamEventType;
@@ -61,7 +62,7 @@ public class AnalysisOrchestrator {
                     .onErrorResume(failure -> Flux.just(sequence.next(
                             StreamEventType.GENERATION_FAILED,
                             Map.of("errorCode", errorCode(failure),
-                                    "retryable", failure instanceof AnalysisRetryableException))))
+                                    "retryable", retryable(failure)))))
                     .doOnCancel(execution.modelContext().cancellation()::cancel);
         });
     }
@@ -94,9 +95,35 @@ public class AnalysisOrchestrator {
     }
 
     private String errorCode(Throwable failure) {
-        return failure instanceof AnalysisRetryableException
-                ? "ANALYSIS_OUTPUT_INVALID"
-                : "ANALYSIS_FAILED";
+        if (failure instanceof AnalysisRetryableException) {
+            return "ANALYSIS_OUTPUT_INVALID";
+        }
+        if (failure instanceof ModelGatewayException gateway) {
+            return switch (gateway.kind()) {
+                case UNREACHABLE -> "MODEL_UNREACHABLE";
+                case AUTHENTICATION -> "MODEL_AUTHENTICATION_FAILED";
+                case MODEL_NOT_FOUND -> "MODEL_NOT_FOUND";
+                case RATE_LIMITED -> "MODEL_RATE_LIMITED";
+                case FORMAT_INCOMPATIBLE -> "MODEL_FORMAT_INCOMPATIBLE";
+                case TIMEOUT -> "MODEL_TIMEOUT";
+                case CANCELLED -> "MODEL_CANCELLED";
+                case INTERNAL -> "MODEL_INTERNAL_ERROR";
+            };
+        }
+        return "ANALYSIS_FAILED";
+    }
+
+    private boolean retryable(Throwable failure) {
+        if (failure instanceof AnalysisRetryableException) {
+            return true;
+        }
+        if (failure instanceof ModelGatewayException gateway) {
+            return switch (gateway.kind()) {
+                case UNREACHABLE, RATE_LIMITED, TIMEOUT, FORMAT_INCOMPATIBLE, INTERNAL -> true;
+                case AUTHENTICATION, MODEL_NOT_FOUND, CANCELLED -> false;
+            };
+        }
+        return false;
     }
 
     public record AnalysisExecution(

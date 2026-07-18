@@ -10,6 +10,8 @@ function candidate(index: number): ArchitectureCandidate {
 describe('ArchitectureComparison', () => {
   it('shows 2-3 candidates with every score dimension and selects an alternative', async () => {
     const wrapper = mount(ArchitectureComparison, { props: { candidates: [candidate(0), candidate(1), candidate(2)], pendingFields: ['budget'] } })
+    expect(wrapper.get('[data-testid="recommended-architecture"]').text()).toContain('推荐方案')
+    await wrapper.get('[data-testid="recommended-architecture"]').find('button').trigger('click')
     expect(wrapper.findAll('.candidate')).toHaveLength(3)
     expect(wrapper.text()).toContain('学习成本')
     expect(wrapper.text()).toContain('AI 支持')
@@ -20,6 +22,7 @@ describe('ArchitectureComparison', () => {
 
   it('creates a separately identified manual candidate', async () => {
     const wrapper = mount(ArchitectureComparison, { props: { candidates: [candidate(0), candidate(1)] } })
+    await wrapper.get('[data-testid="recommended-architecture"]').find('button').trigger('click')
     await wrapper.findAll('.candidate')[0]!.findAll('button')[1]!.trigger('click')
     await wrapper.find('input[name="manualName"]').setValue('我的 Vue 架构')
     await wrapper.find('[data-testid="manual-editor"] .button-primary').trigger('click')

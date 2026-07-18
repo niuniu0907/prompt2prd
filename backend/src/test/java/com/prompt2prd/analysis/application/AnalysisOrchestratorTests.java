@@ -12,6 +12,7 @@ import com.prompt2prd.analysis.domain.RequirementType;
 import com.prompt2prd.model.application.ModelCallContext;
 import com.prompt2prd.model.application.ModelCancellationSignal;
 import com.prompt2prd.model.application.ModelEndpoint;
+import com.prompt2prd.model.application.ModelGatewayException;
 import com.prompt2prd.stream.StreamEvent;
 import org.junit.jupiter.api.Test;
 import reactor.core.publisher.Mono;
@@ -75,6 +76,21 @@ class AnalysisOrchestratorTests {
         assertThat(events).extracting(event -> event.type().wireName())
                 .containsExactly("analysis_started", "analysis_progress", "generation_failed");
         assertThat(events.getLast().data()).containsEntry("retryable", true);
+    }
+
+    @Test
+    void exposesModelFailureCodesInTerminalFailureEvent() {
+        RequirementState initial = state(List.of());
+        AnalysisOrchestrator orchestrator = new AnalysisOrchestrator(
+                command -> Mono.error(new ModelGatewayException(
+                        ModelGatewayException.Kind.AUTHENTICATION, "bad key")));
+
+        List<StreamEvent> events = orchestrator.analyze(execution(initial)).collectList().block();
+
+        assertThat(events.getLast().type().wireName()).isEqualTo("generation_failed");
+        assertThat(events.getLast().data())
+                .containsEntry("errorCode", "MODEL_AUTHENTICATION_FAILED")
+                .containsEntry("retryable", false);
     }
 
     private AnalysisOrchestrator.AnalysisExecution execution(RequirementState state) {

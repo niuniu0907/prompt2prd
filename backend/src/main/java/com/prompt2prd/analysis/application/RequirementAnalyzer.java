@@ -4,6 +4,7 @@ import com.prompt2prd.analysis.domain.ClarificationOption;
 import com.prompt2prd.analysis.domain.ClarificationQuestion;
 import com.prompt2prd.analysis.domain.CompletenessCalculator;
 import com.prompt2prd.analysis.domain.CompletenessInput;
+import com.prompt2prd.analysis.domain.PrdCoverageArea;
 import com.prompt2prd.analysis.domain.QuestionInputType;
 import com.prompt2prd.analysis.domain.QuestionSelector;
 import com.prompt2prd.analysis.domain.QuestionStatus;
@@ -37,9 +38,128 @@ import java.util.function.Supplier;
 public final class RequirementAnalyzer implements AnalysisEngine {
 
     static final String OUTPUT_SCHEMA = """
-            {"type":"object","required":["suggestedProjectName","requirements","questions","missingInformation"],
-             "properties":{"requirements":{"type":"array"},"questions":{"type":"array"},
-             "missingInformation":{"type":"array"}}}
+            {
+              "type": "object",
+              "required": ["suggestedProjectName", "requirements", "questions", "missingInformation"],
+              "properties": {
+                "suggestedProjectName": {
+                  "type": "string",
+                  "description": "A short project name in the project language."
+                },
+                "requirements": {
+                  "type": "array",
+                  "description": "Facts, assumptions, or gaps extracted from the current input. Use an empty array when none.",
+                  "items": {
+                    "type": "object",
+                    "required": ["targetRequirementId", "type", "title", "content", "status"],
+                    "properties": {
+                      "targetRequirementId": {
+                        "type": "string",
+                        "description": "Existing requirement UUID to update, or an empty string for a new requirement."
+                      },
+                      "type": {
+                        "type": "string",
+                        "enum": ["PRODUCT_GOAL", "ROLE", "FEATURE", "USER_STORY", "BUSINESS_RULE", "EXCEPTION_SCENARIO", "TECHNICAL_CONSTRAINT", "DATA_MODEL", "ACCEPTANCE_CRITERION", "PAGE", "API", "IMPLEMENTATION_PHASE", "CODING_AGENT_CONSTRAINT", "NON_FUNCTIONAL_REQUIREMENT", "ASSUMPTION", "RISK_OPEN_ITEM", "MISSING_INFORMATION"]
+                      },
+                      "title": {
+                        "type": "string",
+                        "description": "Concise user-facing requirement title."
+                      },
+                      "content": {
+                        "type": "string",
+                        "description": "Concrete requirement content in the project language."
+                      },
+                      "status": {
+                        "type": "string",
+                        "enum": ["INFERRED", "PENDING"],
+                        "description": "Model output must never mark content as CONFIRMED or CONFLICTED."
+                      }
+                    }
+                  }
+                },
+                "questions": {
+                  "type": "array",
+                  "description": "Five to ten high-value clarification questions when important information is missing. Use an empty array only when no useful question remains.",
+                  "items": {
+                    "type": "object",
+                    "required": ["text", "reason", "dimension", "targetField", "semanticKey", "inputType", "options", "businessImpact", "informationGap", "dependencyCount", "risk"],
+                    "properties": {
+                      "text": {
+                        "type": "string",
+                        "description": "The clarification question in the project language."
+                      },
+                      "reason": {
+                        "type": "string",
+                        "description": "Why this question matters."
+                      },
+                      "dimension": {
+                        "type": "string",
+                        "enum": ["PRODUCT_SCOPE", "ROLES_PERMISSIONS", "CORE_FLOW", "FEATURES", "BUSINESS_RULES", "EXCEPTIONS", "DATA_MODEL", "ARCHITECTURE_CONSTRAINTS", "PAGES_APIS", "ACCEPTANCE"]
+                      },
+                      "targetField": {
+                        "type": "string",
+                        "description": "Stable field being clarified. Prefix it with one PRD coverage key, such as productContext.goal, rolesScenarios.buyer, featureScopePriorities.mvp, coreBusinessFlow.orderLifecycle, userStories.buyerStory, rulesExceptions.refundRule, pagesStates.checkoutEmpty, dataEntitiesFields.order, apiRequirements.createOrder, acceptanceCriteria.refundScenario, nonFunctional.security, assumptionsRisksOpenItems.openRisk."
+                      },
+                      "semanticKey": {
+                        "type": "string",
+                        "description": "Stable deduplication key for this question."
+                      },
+                      "inputType": {
+                        "type": "string",
+                        "enum": ["SINGLE_SELECT", "MULTI_SELECT"],
+                        "description": "Every clarification question must be selectable. Use SINGLE_SELECT when one answer applies and MULTI_SELECT when multiple answers may apply."
+                      },
+                      "options": {
+                        "type": "array",
+                        "description": "Required for every question. Provide at least two concrete options and mark the best/default option as recommended when applicable.",
+                        "items": {
+                          "type": "object",
+                          "required": ["label", "impact", "recommended"],
+                          "properties": {
+                            "label": {
+                              "type": "string"
+                            },
+                            "impact": {
+                              "type": "string"
+                            },
+                            "recommended": {
+                              "type": "boolean"
+                            }
+                          }
+                        }
+                      },
+                      "businessImpact": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "maximum": 5
+                      },
+                      "informationGap": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "maximum": 5
+                      },
+                      "dependencyCount": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "maximum": 5
+                      },
+                      "risk": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "maximum": 5
+                      }
+                    }
+                  }
+                },
+                "missingInformation": {
+                  "type": "array",
+                  "description": "Important missing information summarized in the project language.",
+                  "items": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
             """;
 
     private final ModelGateway modelGateway;
@@ -86,7 +206,18 @@ public final class RequirementAnalyzer implements AnalysisEngine {
                 List.of(
                         new ModelMessage(ModelMessage.Role.SYSTEM,
                                 "Extract facts, assumptions, gaps, conflicts, and clarification questions. "
-                                        + "Never mark model content as user-confirmed."),
+                                        + "Return only the requested JSON object. "
+                                        + "Never mark model content as user-confirmed. "
+                                        + "Requirement status must be only INFERRED or PENDING. "
+                                        + "The clarification loop must converge toward these minimum PRD coverage areas:\n"
+                                        + PrdCoverageArea.promptChecklist() + "\n"
+                                        + "Do not say no useful question remains until the applicable areas are answered, "
+                                        + "explicitly skipped, or listed as assumptions/risks/open items. "
+                                        + "Every clarification question must be selectable: use only SINGLE_SELECT or MULTI_SELECT "
+                                        + "and provide at least two concrete options. For open-ended topics, provide common choices "
+                                        + "plus an option that lets the user describe another answer. "
+                                        + "Every question targetField must start with one of: "
+                                        + PrdCoverageArea.targetFieldInstruction() + "."),
                         new ModelMessage(ModelMessage.Role.USER,
                                 prompt(command.context(), command.currentInput()))),
                 AnalysisModelOutput.class,
@@ -172,9 +303,11 @@ public final class RequirementAnalyzer implements AnalysisEngine {
                 .map(option -> new ClarificationOption(
                         idGenerator.get(), option.label(), option.impact(), option.recommended()))
                 .toList();
-        if ((inputType == QuestionInputType.SINGLE_SELECT
-                || inputType == QuestionInputType.MULTI_SELECT) && options.isEmpty()) {
-            throw new AnalysisRetryableException("Selection questions require options");
+        if (inputType != QuestionInputType.SINGLE_SELECT && inputType != QuestionInputType.MULTI_SELECT) {
+            throw new AnalysisRetryableException("Clarification questions must be selectable");
+        }
+        if (options.size() < 2) {
+            throw new AnalysisRetryableException("Selectable questions require at least two options");
         }
         ClarificationQuestion question = new ClarificationQuestion(
                 idGenerator.get(), current.project().id(), batchId,
@@ -197,8 +330,9 @@ public final class RequirementAnalyzer implements AnalysisEngine {
             case TECHNICAL_CONSTRAINT -> RequirementDimension.ARCHITECTURE_CONSTRAINTS;
             case PAGE, API -> RequirementDimension.PAGES_APIS;
             case ACCEPTANCE_CRITERION -> RequirementDimension.ACCEPTANCE;
-            case IMPLEMENTATION_PHASE, CODING_AGENT_CONSTRAINT, ASSUMPTION, MISSING_INFORMATION ->
-                    RequirementDimension.PRODUCT_SCOPE;
+            case NON_FUNCTIONAL_REQUIREMENT -> RequirementDimension.ARCHITECTURE_CONSTRAINTS;
+            case IMPLEMENTATION_PHASE, CODING_AGENT_CONSTRAINT, ASSUMPTION, RISK_OPEN_ITEM,
+                    MISSING_INFORMATION -> RequirementDimension.PRODUCT_SCOPE;
         };
     }
 
@@ -222,6 +356,7 @@ public final class RequirementAnalyzer implements AnalysisEngine {
                 + "\nLocked requirements=" + context.lockedRequirements()
                 + "\nRecent answers=" + context.recentAnswers()
                 + "\nMissing information=" + context.missingInformation()
+                + "\nPRD coverage checklist=\n" + PrdCoverageArea.promptChecklist()
                 + "\nOutput schema=" + context.outputSchema();
     }
 

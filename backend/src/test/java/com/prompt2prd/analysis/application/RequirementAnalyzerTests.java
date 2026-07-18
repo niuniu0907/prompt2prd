@@ -1,6 +1,7 @@
 package com.prompt2prd.analysis.application;
 
 import com.prompt2prd.analysis.domain.CompletenessScore;
+import com.prompt2prd.analysis.domain.PrdCoverageArea;
 import com.prompt2prd.analysis.domain.ProjectStage;
 import com.prompt2prd.analysis.domain.ProjectSummary;
 import com.prompt2prd.analysis.domain.RequirementDimension;
@@ -96,9 +97,36 @@ class RequirementAnalyzerTests {
 
         assertThat(gateway.request).isNotNull();
         assertThat(gateway.request.responseType()).isEqualTo(AnalysisModelOutput.class);
-        assertThat(gateway.request.outputSchema()).contains("requirements", "questions");
+        assertThat(gateway.request.outputSchema())
+                .contains("requirements", "questions", "targetRequirementId", "businessImpact")
+                .contains("PRODUCT_GOAL", "NON_FUNCTIONAL_REQUIREMENT", "RISK_OPEN_ITEM")
+                .contains("SINGLE_SELECT", "MULTI_SELECT", "INFERRED", "PENDING")
+                .contains("productContext.goal", "assumptionsRisksOpenItems.openRisk")
+                .doesNotContain("\"TEXT\"", "\"CONFIRMATION\"");
         assertThat(gateway.request.messages()).hasSize(2);
-        assertThat(gateway.request.messages().getLast().content()).contains("需求工作台", "zh-CN");
+        assertThat(gateway.request.messages().getFirst().content())
+                .contains(
+                        "Return only the requested JSON object",
+                        "Requirement status must be only INFERRED or PENDING",
+                        "minimum PRD coverage areas",
+                        "Every clarification question must be selectable",
+                        "provide at least two concrete options");
+        assertThat(gateway.request.messages().getLast().content()).contains("需求工作台", "zh-CN", "PRD coverage checklist");
+        for (PrdCoverageArea area : PrdCoverageArea.values()) {
+            assertThat(gateway.request.messages().getFirst().content()).contains(area.label(), area.key());
+            assertThat(gateway.request.messages().getLast().content()).contains(area.label(), area.key());
+        }
+    }
+
+    @Test
+    void textQuestionsAreRetryableBecauseClarificationMustBeSelectable() {
+        RequirementState initial = emptyState();
+        AnalysisModelOutput invalid = validOutput(List.of(textQuestion("refund-window", "退款期限是多少？")));
+
+        assertThatThrownBy(() -> new RequirementAnalyzer(new StubGateway(invalid))
+                .analyze(command(initial)).block())
+                .isInstanceOf(AnalysisRetryableException.class);
+        assertThat(initial.questions()).isEmpty();
     }
 
     private RequirementAnalyzer.AnalysisCommand command(RequirementState state) {
@@ -128,6 +156,25 @@ class RequirementAnalyzerTests {
                 "明确维护责任",
                 RequirementDimension.ROLES_PERMISSIONS.name(),
                 "maintainer",
+                semanticKey,
+                "SINGLE_SELECT",
+                List.of(
+                        new AnalysisModelOutput.OptionCandidate("产品负责人维护", "决策集中，适合单人或小团队推进", true),
+                        new AnalysisModelOutput.OptionCandidate("多人协作维护", "需要权限和版本协同，适合团队长期维护", false)
+                ),
+                5,
+                5,
+                3,
+                3
+        );
+    }
+
+    private AnalysisModelOutput.QuestionCandidate textQuestion(String semanticKey, String text) {
+        return new AnalysisModelOutput.QuestionCandidate(
+                text,
+                "明确业务规则",
+                RequirementDimension.BUSINESS_RULES.name(),
+                "refundWindow",
                 semanticKey,
                 "TEXT",
                 List.of(),

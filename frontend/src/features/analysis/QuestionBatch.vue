@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { reactive, watch } from 'vue'
+import { computed, reactive, watch } from 'vue'
 import type { ClarificationQuestion } from '@/features/requirements/types'
 import QuestionCard from './QuestionCard.vue'
 import { emptyAnswer, type QuestionAnswerDraft } from './answerTypes'
@@ -11,8 +11,14 @@ const drafts = reactive<Record<string, QuestionAnswerDraft>>({})
 watch(() => props.questions, syncDrafts, { immediate: true, deep: true })
 function syncDrafts() { for (const question of props.questions) drafts[question.id] ??= emptyAnswer(question.id) }
 function setDraft(id: string, value: QuestionAnswerDraft) { drafts[id] = value }
+function answered(draft: QuestionAnswerDraft | undefined) {
+  return Boolean(draft?.skipped || draft?.selectedOptionIds.length || draft?.customAnswer?.trim() || draft?.note?.trim())
+}
+const answeredCount = computed(() => props.questions.filter(question => answered(drafts[question.id])).length)
+const canSubmit = computed(() => answeredCount.value > 0 && !props.busy)
 function submit(skipAll = false) {
   if (props.busy) return
+  if (!skipAll && !answeredCount.value) return
   emit('submit', props.questions.map(question => skipAll
     ? { ...emptyAnswer(question.id), skipped: true }
     : { ...drafts[question.id]! }))
@@ -21,9 +27,21 @@ function submit(skipAll = false) {
 
 <template>
   <section class="question-batch">
-    <header class="question-batch__heading"><div><span>本轮共 {{ questions.length }} 题</span><h1>集中确认关键需求</h1></div><p>可以选择推荐项，也可以填写自己的答案。</p></header>
+    <header class="question-batch__heading">
+      <div>
+        <span>本轮追问 {{ questions.length }} 个问题</span>
+        <h1>先回答这一批问题</h1>
+      </div>
+      <p>已回答 {{ answeredCount }}/{{ questions.length }}。可以直接选择推荐项，也可以填写自己的答案。</p>
+    </header>
     <QuestionCard v-for="(question, index) in questions" :key="question.id" :question="question" :index="index" :model-value="drafts[question.id]!" :disabled="busy" @update:model-value="setDraft(question.id, $event)" />
-    <footer><button data-testid="skip-batch" type="button" :disabled="busy" @click="submit(true)">跳过本轮</button><button data-testid="submit-batch" class="button-primary" type="button" :disabled="busy" @click="submit(false)">{{ busy ? '正在提交…' : '提交本轮回答' }}</button></footer>
+    <footer>
+      <p v-if="!answeredCount">至少回答 1 题，或跳过本轮。</p>
+      <div>
+        <button data-testid="skip-batch" type="button" :disabled="busy" @click="submit(true)">跳过本轮</button>
+        <button data-testid="submit-batch" class="button-primary" type="button" :disabled="!canSubmit" @click="submit(false)">{{ busy ? 'AI 正在整理…' : '提交回答，让 AI 继续追问' }}</button>
+      </div>
+    </footer>
   </section>
 </template>
 
@@ -33,6 +51,8 @@ function submit(skipAll = false) {
 .question-batch__heading span { color: var(--color-accent); font-size: 10px; font-weight: 750; }
 .question-batch__heading h1 { margin: 5px 0 0; font-size: 22px; }
 .question-batch__heading p { color: var(--color-text-secondary); font-size: 11px; }
-footer { display: flex; justify-content: flex-end; gap: 12px; padding: 8px 0; }
-footer > button:first-child { padding: 0 12px; color: var(--color-text-secondary); background: transparent; cursor: pointer; }
+footer { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 8px 0 18px; }
+footer p { margin: 0; color: var(--color-text-secondary); font-size: 11px; }
+footer div { display: flex; justify-content: flex-end; gap: 12px; }
+footer button:first-child { padding: 0 12px; color: var(--color-text-secondary); background: transparent; cursor: pointer; }
 </style>

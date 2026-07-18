@@ -508,7 +508,7 @@ function buildPrdSequence(): unknown[] {
   let eventId = 2
   for (const section of sections) {
     events.push({ requestId: prdReqId, eventId: eventId++, type: 'section_started', data: { sectionId: section.key, title: section.title }, timestamp: ts })
-    events.push({ requestId: prdReqId, eventId: eventId++, type: 'section_delta', data: { sectionId: section.key, delta: `## ${section.title}\n\n这是${section.title}的自动生成内容。\n\n基于当前已确认需求和架构信息生成。\n` }, timestamp: ts })
+    events.push({ requestId: prdReqId, eventId: eventId++, type: 'section_delta', data: { sectionId: section.key, delta: `## ${section.title}\n\n这是${section.title}的自动生成内容。\n\n基于当前已确认需求和技术决策摘要生成。\n` }, timestamp: ts })
     events.push({ requestId: prdReqId, eventId: eventId++, type: 'section_completed', data: { sectionId: section.key, status: 'generated' }, timestamp: ts })
   }
 

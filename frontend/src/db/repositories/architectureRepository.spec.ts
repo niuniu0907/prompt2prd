@@ -1,4 +1,5 @@
 import 'fake-indexeddb/auto'
+import { reactive } from 'vue'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { createAppDatabase, type AppDatabase } from '@/db/appDatabase'
 import { createProject } from '@/features/projects/types'
@@ -34,5 +35,15 @@ describe('ArchitectureRepository', () => {
     expect(await database.app_setting.get(`analysisCompleteness:${projectId}`)).toBeDefined()
     expect(first.event.type).toBe('architecture_confirmed')
     expect(second.event.data.architectureId).toBe(candidate(1).id)
+  })
+
+  it('confirms Vue reactive candidates without structuredClone failures', async () => {
+    await repository.saveCandidates(projectId, [candidate(0), candidate(1)])
+    const selected = reactive(candidate(0))
+    const result = await repository.confirm(projectId, selected, false, '2026-07-17T03:00:00.000Z')
+
+    expect(result.event.data.architectureId).toBe(selected.id)
+    expect((await repository.selected(projectId))?.id).toBe(selected.id)
+    expect(await database.requirement_change.where('projectId').equals(projectId).count()).toBe(1)
   })
 })

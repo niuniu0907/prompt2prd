@@ -56,7 +56,7 @@ function statusClass(status: string) {
         :data-testid="`lock-${section.sectionKey}`"
         @click.stop="emit('toggleLock', section.sectionKey)"
       >
-        {{ section.locked ? '🔒' : '🔓' }}
+        {{ section.locked ? '锁' : '开' }}
       </button>
     </div>
   </nav>
@@ -68,6 +68,7 @@ function statusClass(status: string) {
   gap: 2px;
   max-height: calc(100vh - 200px);
   overflow-y: auto;
+  overflow-x: hidden;
 }
 .section-item {
   display: flex;

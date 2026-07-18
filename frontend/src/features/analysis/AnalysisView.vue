@@ -13,6 +13,7 @@ import {
   type AnalysisState,
   type AnalysisStateStore,
 } from '@/db/repositories/analysisStateRepository'
+import { architectureRepository } from '@/db/repositories/architectureRepository'
 import { projectRepository } from '@/db/repositories/projectRepository'
 import type { Project } from '@/features/projects/types'
 import type {
@@ -20,6 +21,7 @@ import type {
   CompletenessScore,
   RequirementItem,
 } from '@/features/requirements/types'
+import { isFormalRequirement } from '@/features/requirements/requirementDisplay'
 import { useModelConfigStore } from '@/stores/modelConfigStore'
 import AnalysisProgress from './AnalysisProgress.vue'
 import RequirementSummary from './RequirementSummary.vue'
@@ -33,6 +35,7 @@ const props = defineProps<{
   project?: Project
   client?: AnalysisRunner
   store?: AnalysisStateStore
+  architectureSelected?: (projectId: string) => Promise<unknown>
   modelSettings?: unknown
 }>()
 
@@ -41,25 +44,51 @@ const router = useRouter()
 const modelConfig = useModelConfigStore()
 const client = props.client ?? createAnalysisClient()
 const stateStore = props.store ?? analysisStateRepository
+const architectureSelected = props.architectureSelected ?? ((projectId: string) => architectureRepository.selected(projectId))
 const currentProject = ref<Project | null>(props.project ?? null)
 const requirements = ref<RequirementItem[]>([])
 const questions = ref<ClarificationQuestion[]>([])
 const completeness = ref<CompletenessScore>(emptyCompleteness())
+const architectureConfirmed = ref(false)
 const progress = ref(0)
 const progressMessage = ref('准备分析项目输入')
 const analyzing = ref(false)
 const loading = ref(true)
 const errorMessage = ref('')
 
+const formalRequirements = computed(() => requirements.value.filter(isFormalRequirement))
 const pendingQuestions = computed(() => questions.value.filter(item => item.status === 'PENDING'))
+const confirmedRequirements = computed(() => formalRequirements.value.filter(item => item.status === 'CONFIRMED'))
+const pendingRequirements = computed(() => formalRequirements.value.filter(item => item.status === 'PENDING'))
+const conflictedRequirements = computed(() => formalRequirements.value.filter(item => item.status === 'CONFLICTED'))
+const nextAction = computed(() => {
+  if (formalRequirements.value.length === 0) return { label: '重新分析需求', target: null }
+  if (pendingQuestions.value.length) return { label: '回答澄清问题', target: 'project-questions' }
+  if (pendingRequirements.value.length || conflictedRequirements.value.length) return { label: '查看并确认需求卡片', target: 'project-requirements' }
+  if (!architectureConfirmed.value) return { label: '进入架构建议', target: 'project-architecture' }
+  if (currentProject.value?.stage === 'PRD' || currentProject.value?.stage === 'COMPLETED') {
+    return { label: '查看 PRD', target: 'project-prd' }
+  }
+  return { label: '生成业务流程图', target: 'project-flowchart' }
+})
 
 const needsModelSetup = computed(() => {
   const msg = errorMessage.value
   return msg.includes('模型') || msg.includes('API Key') || msg.includes('Key 来源')
+    || msg.includes('Base URL') || msg.includes('服务商')
 })
 
 function goToModelSettings() {
   void router.push({ name: 'model-settings' })
+}
+
+function goToNextAction() {
+  if (!nextAction.value.target) {
+    void startAnalysis()
+    return
+  }
+  const projectId = currentProject.value?.id ?? String(route?.params.projectId ?? '')
+  void router.push({ name: nextAction.value.target, params: { projectId } })
 }
 
 onMounted(async () => {
@@ -70,7 +99,11 @@ onMounted(async () => {
       return
     }
     currentProject.value = project
-    const restored = await stateStore.load(project.id)
+    const [restored, selectedArchitecture] = await Promise.all([
+      stateStore.load(project.id),
+      architectureSelected(project.id),
+    ])
+    architectureConfirmed.value = Boolean(selectedArchitecture)
     if (restored) applyState(restored)
     loading.value = false
     if (!restored || !hasAnalysisContent(restored)) await startAnalysis()
@@ -219,17 +252,48 @@ function readableError(error: unknown) {
     <template v-else>
       <header class="analysis-view__header">
         <div><span>需求概览</span><h1>从想法到可确认的需求</h1></div>
-        <button v-if="errorMessage" type="button" class="button-primary" :disabled="analyzing" @click="startAnalysis">重新分析</button>
+        <button
+          v-if="errorMessage"
+          type="button"
+          class="button-primary"
+          :disabled="analyzing"
+          @click="startAnalysis"
+        >
+          重新分析
+        </button>
+        <button v-else type="button" class="button-primary" @click="goToNextAction">
+          {{ nextAction.label }}
+        </button>
       </header>
 
       <AnalysisProgress :progress="progress" :message="progressMessage" :active="analyzing" />
 
+      <section v-if="requirements.length || pendingQuestions.length" class="overview-board" aria-label="当前需求状态">
+        <article>
+          <span>已确认需求</span>
+          <strong>{{ confirmedRequirements.length }}</strong>
+        </article>
+        <article>
+          <span>待确认内容</span>
+          <strong>{{ pendingRequirements.length + pendingQuestions.length }}</strong>
+        </article>
+        <article :class="{ 'overview-board__blocked': conflictedRequirements.length > 0 }">
+          <span>当前冲突</span>
+          <strong>{{ conflictedRequirements.length }}</strong>
+        </article>
+        <article>
+          <span>下一步</span>
+          <strong>{{ nextAction.label }}</strong>
+        </article>
+      </section>
+
       <div v-if="errorMessage" class="analysis-view__error" role="alert">
-        <strong>本次分析未完成</strong><span>{{ errorMessage }}</span>
+        <strong>{{ formalRequirements.length || pendingQuestions.length ? '本次分析未完成' : 'AI 还没有生成澄清问题' }}</strong>
+        <span>{{ errorMessage }}</span>
         <button v-if="needsModelSetup" type="button" class="button-primary" @click="goToModelSettings">前往模型设置</button>
       </div>
 
-      <RequirementSummary :requirements="requirements" />
+      <RequirementSummary :requirements="formalRequirements" />
 
       <section v-if="pendingQuestions.length" class="question-preview">
         <header><div><span>第一轮澄清</span><h2>还需要你确认 {{ pendingQuestions.length }} 个问题</h2></div><small>下一步将在问题向导中集中回答</small></header>
@@ -248,9 +312,16 @@ function readableError(error: unknown) {
 .analysis-view__header { display: flex; align-items: end; justify-content: space-between; gap: 20px; }
 .analysis-view__header span,.question-preview header span { color: var(--color-accent); font-size: 10px; font-weight: 750; letter-spacing: .08em; }
 .analysis-view__header h1 { margin: 5px 0 0; font-size: 22px; }
+.analysis-view__header .button-primary { min-height: 38px; padding: 0 15px; border-radius: 8px; font-size: 12px; }
 .analysis-view__error { display: grid; gap: 8px; padding: 13px 15px; border: 1px solid #e2bcbc; border-radius: 11px; color: #873f3f; background: #fff8f8; }
 .analysis-view__error span { color: var(--color-text-secondary); font-size: 11px; }
 .analysis-view__error .button-primary { justify-self: start; margin-top: 2px; }
+.overview-board { display: grid; grid-template-columns: repeat(4,minmax(0,1fr)); gap: 10px; }
+.overview-board article { display: grid; gap: 7px; min-height: 74px; padding: 13px 14px; border: 1px solid var(--color-border); border-radius: 10px; background: var(--color-surface); }
+.overview-board span { color: var(--color-text-secondary); font-size: 11px; }
+.overview-board strong { color: var(--color-text-primary); font-size: 16px; }
+.overview-board__blocked { border-color: #e2bcbc; background: #fff8f8; }
+.overview-board__blocked strong { color: #873f3f; }
 .question-preview { display: grid; gap: 10px; padding-top: 4px; }
 .question-preview > header { display: flex; align-items: end; justify-content: space-between; gap: 20px; }
 .question-preview h2 { margin: 4px 0 0; font-size: 14px; }

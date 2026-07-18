@@ -124,8 +124,10 @@ public final class CompletenessCalculator {
                     RequirementDimension.ARCHITECTURE_CONSTRAINTS);
             case PAGE, API -> Optional.of(RequirementDimension.PAGES_APIS);
             case ACCEPTANCE_CRITERION -> Optional.of(RequirementDimension.ACCEPTANCE);
+            case NON_FUNCTIONAL_REQUIREMENT -> Optional.of(
+                    RequirementDimension.ARCHITECTURE_CONSTRAINTS);
             case IMPLEMENTATION_PHASE, CODING_AGENT_CONSTRAINT, ASSUMPTION,
-                    MISSING_INFORMATION -> Optional.empty();
+                    RISK_OPEN_ITEM, MISSING_INFORMATION -> Optional.empty();
         };
     }
 

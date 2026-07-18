@@ -44,7 +44,7 @@ describe('AnalysisView', () => {
       saveFinal: vi.fn(async (_id, state) => state),
     }
     const wrapper = mount(AnalysisView, {
-      props: { project, client, store, modelSettings: { keySource: 'SYSTEM', model: 'test-model' } },
+      props: { project, client, store, architectureSelected: vi.fn(async () => null), modelSettings: { keySource: 'SYSTEM', model: 'test-model' } },
       global: { plugins: [createPinia()] },
     })
     await flushPromises()
@@ -74,7 +74,7 @@ describe('AnalysisView', () => {
     }
     const client = { analyze: vi.fn(), submitAnswers: vi.fn(), cancel: vi.fn() }
     const wrapper = mount(AnalysisView, {
-      props: { project, client, store, modelSettings: {} },
+      props: { project, client, store, architectureSelected: vi.fn(async () => null), modelSettings: {} },
       global: { plugins: [createPinia()] },
     })
     await flushPromises()
@@ -82,6 +82,90 @@ describe('AnalysisView', () => {
     expect(wrapper.text()).toContain('为宠物主人提供寄养服务')
     expect(wrapper.text()).toContain('寄养方支持哪些角色？')
     expect(client.analyze).not.toHaveBeenCalled()
+  })
+
+  it('keeps architecture candidates out of the requirements overview', async () => {
+    const restored: AnalysisState = {
+      ...finalState(),
+      requirements: [
+        { ...requirement, status: 'CONFIRMED' },
+        architectureCandidate('55555555-5555-4555-8555-555555555555', 'Vue 3 + Spring Boot 单体', 'CONFIRMED'),
+        architectureCandidate('66666666-6666-4666-8666-666666666666', 'Spring Boot 服务端渲染', 'PENDING'),
+        architectureCandidate('77777777-7777-4777-8777-777777777777', 'Vue 3 + NestJS 全栈 TypeScript', 'PENDING'),
+      ],
+      questions: [],
+      completeness: { total: 12, dimensions: [], pendingCount: 0, hasCoreConflict: false },
+    }
+    const store: AnalysisStateStore = {
+      load: vi.fn(async () => restored),
+      saveFinal: vi.fn(),
+    }
+    const client = { analyze: vi.fn(), submitAnswers: vi.fn(), cancel: vi.fn() }
+    const wrapper = mount(AnalysisView, {
+      props: { project, client, store, architectureSelected: vi.fn(async () => null), modelSettings: {} },
+      global: { plugins: [createPinia()] },
+    })
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('已确认需求1')
+    expect(wrapper.text()).toContain('待确认内容0')
+    expect(wrapper.text()).not.toContain('Vue 3 + Spring Boot 单体')
+    expect(wrapper.text()).not.toContain('ai: Spring AI')
+    expect(client.analyze).not.toHaveBeenCalled()
+  })
+
+  it('does not send users back to architecture recommendations after a scheme is confirmed', async () => {
+    const restored: AnalysisState = {
+      ...finalState(),
+      project: { ...project, stage: 'ARCHITECTURE', completeness: 82 },
+      requirements: [{ ...requirement, status: 'CONFIRMED' }],
+      questions: [],
+      completeness: { total: 82, dimensions: [], pendingCount: 0, hasCoreConflict: false },
+    }
+    const store: AnalysisStateStore = {
+      load: vi.fn(async () => restored),
+      saveFinal: vi.fn(),
+    }
+    const client = { analyze: vi.fn(), submitAnswers: vi.fn(), cancel: vi.fn() }
+    const wrapper = mount(AnalysisView, {
+      props: {
+        project,
+        client,
+        store,
+        architectureSelected: vi.fn(async () => architectureCandidate('55555555-5555-4555-8555-555555555555', 'Vue 3 + Spring Boot 单体', 'CONFIRMED')),
+        modelSettings: {},
+      },
+      global: { plugins: [createPinia()] },
+    })
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('生成业务流程图')
+    expect(wrapper.text()).not.toContain('进入架构建议')
+    expect(client.analyze).not.toHaveBeenCalled()
+  })
+
+  it('explains that clarification questions are unavailable when initial AI analysis fails', async () => {
+    const client = {
+      analyze: vi.fn(async () => {
+        throw new Error('模型 API Key 验证失败，请检查 Key 是否正确或是否已过期。')
+      }),
+      submitAnswers: vi.fn(),
+      cancel: vi.fn(),
+    }
+    const store: AnalysisStateStore = {
+      load: vi.fn(async () => undefined),
+      saveFinal: vi.fn(),
+    }
+    const wrapper = mount(AnalysisView, {
+      props: { project, client, store, architectureSelected: vi.fn(async () => null), modelSettings: { keySource: 'USER', model: 'test-model', apiKey: 'bad-key' } },
+      global: { plugins: [createPinia()] },
+    })
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('AI 还没有生成澄清问题')
+    expect(wrapper.text()).toContain('模型 API Key 验证失败')
+    expect(wrapper.text()).toContain('前往模型设置')
+    expect(store.saveFinal).not.toHaveBeenCalled()
   })
 })
 
@@ -105,6 +189,34 @@ function finalState(): AnalysisState {
     project: { ...project, completeness: 40 }, requirements: [{ ...requirement }],
     questions: [{ ...question }], answers: [], conflicts: [],
     completeness: { total: 40, dimensions: [], pendingCount: 1, hasCoreConflict: false },
+  }
+}
+
+function architectureCandidate(id: string, title: string, status: RequirementItem['status']): RequirementItem {
+  return {
+    id,
+    projectId: project.id,
+    type: 'TECHNICAL_CONSTRAINT',
+    title,
+    content: 'ai: Spring AI\ndeployment: 单 JAR / Docker\nfrontend: Vue 3 + TypeScript',
+    status,
+    sourceType: status === 'CONFIRMED' ? 'USER_ANSWER' : 'AI_RECOMMENDATION',
+    sourceId: null,
+    locked: false,
+    metadata: {
+      kind: 'ARCHITECTURE_CANDIDATE',
+      candidate: {
+        id,
+        name: title,
+        stack: {
+          ai: 'Spring AI',
+          deployment: '单 JAR / Docker',
+          frontend: 'Vue 3 + TypeScript',
+        },
+      },
+    },
+    createdAt: project.createdAt,
+    updatedAt: project.updatedAt,
   }
 }
 

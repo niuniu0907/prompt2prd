@@ -92,6 +92,23 @@ describe('POST SSE client', () => {
     })).resolves.toEqual({ ok: true })
     expect(warning).toHaveBeenCalledWith(expect.stringContaining('future_event'))
   })
+
+  it('maps generation failure codes to actionable Chinese messages', async () => {
+    await expect(consumePostSse({
+      url: '/api/analysis',
+      body: {},
+      fetcher: async () => streamResponse([
+        frame(1, 'generation_failed', {
+          errorCode: 'MODEL_AUTHENTICATION_FAILED',
+          retryable: false,
+        }),
+      ]),
+    })).rejects.toMatchObject({
+      code: 'MODEL_AUTHENTICATION_FAILED',
+      message: '模型 API Key 验证失败，请检查 Key 是否正确或是否已过期。',
+      retryable: false,
+    })
+  })
 })
 
 function frame(

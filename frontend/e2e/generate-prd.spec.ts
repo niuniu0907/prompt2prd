@@ -125,7 +125,7 @@ test.describe('架构、流程图与 PRD 闭环', () => {
     await expect(page.locator('[data-testid="prd-sidebar"]')).toBeVisible()
   })
 
-  test('导出文档只包含一个主架构', async ({ page }) => {
+  test('导出文档只包含技术决策摘要', async ({ page }) => {
     const projectId = await createProjectAndReachArchitecture(page)
 
     await page.goto(`/projects/${projectId}/prd`)

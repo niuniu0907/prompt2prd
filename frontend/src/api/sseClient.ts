@@ -104,9 +104,10 @@ export async function consumePostSse(options: PostSseOptions): Promise<unknown> 
       terminalResult = event.data.finalState
     } else if (event.type === 'generation_failed') {
       terminalReceived = true
+      const code = String(event.data.errorCode)
       throw new AnalysisStreamError(
-        `Analysis failed: ${String(event.data.errorCode)}`,
-        String(event.data.errorCode),
+        analysisFailureMessage(code),
+        code,
         Boolean(event.data.retryable),
       )
     } else if (event.type === 'generation_aborted') {
@@ -136,4 +137,21 @@ export async function consumePostSse(options: PostSseOptions): Promise<unknown> 
     throw new AnalysisStreamError('Analysis stream disconnected before a terminal event')
   }
   return terminalResult
+}
+
+function analysisFailureMessage(code: string): string {
+  const messages: Record<string, string> = {
+    INVALID_CONFIGURATION: '模型配置无效，请先检查服务商、Base URL、模型名称和 Key 来源。',
+    MODEL_UNREACHABLE: '无法连接到当前模型服务，请检查 Base URL、网络或本地模型服务是否启动。',
+    MODEL_AUTHENTICATION_FAILED: '模型 API Key 验证失败，请检查 Key 是否正确或是否已过期。',
+    MODEL_NOT_FOUND: '当前模型不存在或该 Key 无权使用，请在模型设置中重新选择模型。',
+    MODEL_RATE_LIMITED: '模型服务暂时限流，请稍后重试或切换到自己的 Key。',
+    MODEL_FORMAT_INCOMPATIBLE: '模型返回格式不符合需求分析结构，请重试或换一个支持结构化输出更稳定的模型。',
+    MODEL_TIMEOUT: '模型分析超时，请稍后重试，或减少输入内容后重新分析。',
+    MODEL_CANCELLED: '本次需求分析已停止。',
+    MODEL_INTERNAL_ERROR: '模型服务内部错误，请稍后重试或切换模型服务。',
+    ANALYSIS_OUTPUT_INVALID: '模型返回的需求分析结果不完整，系统没有保存这次结果，请重试或切换模型。',
+    ANALYSIS_FAILED: 'AI 初始需求分析失败，问题向导还不能开始。请检查模型设置后重新分析。',
+  }
+  return messages[code] ?? `AI 初始需求分析失败（${code}），请检查模型设置后重新分析。`
 }

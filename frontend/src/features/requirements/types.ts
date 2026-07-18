@@ -24,7 +24,9 @@ export const REQUIREMENT_TYPES = [
   'API',
   'IMPLEMENTATION_PHASE',
   'CODING_AGENT_CONSTRAINT',
+  'NON_FUNCTIONAL_REQUIREMENT',
   'ASSUMPTION',
+  'RISK_OPEN_ITEM',
   'MISSING_INFORMATION',
 ] as const
 export type RequirementType = (typeof REQUIREMENT_TYPES)[number]

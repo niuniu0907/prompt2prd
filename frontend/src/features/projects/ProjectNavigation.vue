@@ -55,10 +55,11 @@ const moduleCompleteness = computed(() => props.completeness ?? 0)
 .project-nav {
   display: flex;
   flex-direction: column;
+  width: 100%;
+  min-width: 0;
   padding: 16px 10px;
   border-right: 1px solid var(--color-border);
   background: var(--color-surface);
-  min-width: 168px;
 }
 
 .project-nav__label {
@@ -108,5 +109,9 @@ const moduleCompleteness = computed(() => props.completeness ?? 0)
 
 .project-nav__item-label {
   flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 </style>

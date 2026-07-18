@@ -249,7 +249,7 @@ function sectionTitle(key: PrdSectionKey): string {
     'user-stories': '用户故事与功能摘要',
     'flows-state-machine': '核心业务流程与状态机',
     'rules-exceptions': '业务规则和异常场景',
-    'architecture': '已确认架构与技术约束',
+    'architecture': '技术决策摘要与工程约束',
     'data-model': '数据实体、字段、关系和状态',
     'pages': '页面清单与页面行为',
     'apis': '接口契约、请求响应示例和错误码',

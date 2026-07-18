@@ -32,8 +32,10 @@ const rendered = computed(() => {
 <style scoped>
 .preview {
   display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
   gap: 8px;
   height: 100%;
+  min-height: 0;
 }
 .preview-header {
   display: flex;
@@ -54,7 +56,7 @@ const rendered = computed(() => {
   font-weight: 700;
 }
 .preview-content {
-  flex: 1;
+  min-height: 460px;
   padding: 12px 16px;
   border: 1px solid var(--color-border);
   border-radius: 7px;

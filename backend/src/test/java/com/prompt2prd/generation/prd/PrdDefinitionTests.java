@@ -17,6 +17,17 @@ class PrdDefinitionTests {
         assertThat(PrdDefinition.sections()).extracting(section -> section.key().wireName())
                 .doesNotHaveDuplicates()
                 .contains("coding-agent-guide", "apis", "acceptance", "open-items");
+        assertThat(PrdDefinition.requireSection("architecture").title())
+                .isEqualTo("技术决策摘要与工程约束");
+        assertThat(PrdDefinition.requireSection("pages").title())
+                .isEqualTo("页面清单与页面状态");
+        assertThat(PrdDefinition.sections()).extracting(PrdDefinition.Section::title)
+                .anyMatch(title -> title.contains("产品背景"))
+                .anyMatch(title -> title.contains("用户故事"))
+                .anyMatch(title -> title.contains("业务规则"))
+                .anyMatch(title -> title.contains("接口契约"))
+                .anyMatch(title -> title.contains("非功能需求"))
+                .anyMatch(title -> title.contains("待确认事项"));
     }
 
     @Test

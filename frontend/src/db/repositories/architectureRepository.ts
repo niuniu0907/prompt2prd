@@ -35,14 +35,14 @@ export class ArchitectureRepository {
   async saveCandidates(projectId: string, candidates: ArchitectureCandidate[], now = new Date().toISOString()): Promise<void> {
     assertUuid(projectId, 'project id'); assertUtcIsoDateTime(now, 'candidate timestamp')
     if (candidates.length < 2 || candidates.length > 3) throw new TypeError('architecture recommendation must contain 2-3 candidates')
-    candidates.forEach(candidate => this.validateCandidate(candidate))
+    const plainCandidates = candidates.map(candidate => this.plainCandidate(candidate))
     await this.database.transaction('rw', this.database.requirement_item, async () => {
       const existing = await this.architectureRequirements(projectId)
-      const incomingIds = new Set(candidates.map(candidate => candidate.id))
+      const incomingIds = new Set(plainCandidates.map(candidate => candidate.id))
       for (const stale of existing.filter(item => item.status !== 'CONFIRMED' && !incomingIds.has(item.id))) {
         await this.database.requirement_item.delete(stale.id)
       }
-      for (const candidate of candidates) {
+      for (const candidate of plainCandidates) {
         const current = existing.find(item => item.id === candidate.id)
         await this.database.requirement_item.put(this.toRequirement(projectId, candidate, current?.status === 'CONFIRMED', current?.createdAt ?? now, now))
       }
@@ -55,7 +55,8 @@ export class ArchitectureRepository {
     manual = false,
     now = new Date().toISOString(),
   ): Promise<ArchitectureConfirmationResult> {
-    assertUuid(projectId, 'project id'); assertUtcIsoDateTime(now, 'confirmation timestamp'); this.validateCandidate(candidate)
+    assertUuid(projectId, 'project id'); assertUtcIsoDateTime(now, 'confirmation timestamp')
+    const plainCandidate = this.plainCandidate(candidate)
     return this.database.transaction('rw', this.tables(), async () => {
       const project = await this.database.project.get(projectId)
       if (!project) throw new Error(`Project ${projectId} not found`)
@@ -64,8 +65,8 @@ export class ArchitectureRepository {
       for (const item of current) {
         await this.database.requirement_item.put({ ...item, status: 'PENDING', locked: false, updatedAt: now })
       }
-      const selected = this.toRequirement(projectId, candidate, true,
-        current.find(item => item.id === candidate.id)?.createdAt ?? now, now, manual)
+      const selected = this.toRequirement(projectId, plainCandidate, true,
+        current.find(item => item.id === plainCandidate.id)?.createdAt ?? now, now, manual)
       await this.database.requirement_item.put(selected)
       const [requirements, questions, answers, conflicts, flowcharts] = await Promise.all([
         this.database.requirement_item.where('projectId').equals(projectId).toArray(),
@@ -84,9 +85,9 @@ export class ArchitectureRepository {
         project: structuredClone(updatedProject), requirements: structuredClone(requirements),
         questions: structuredClone(questions), answers: structuredClone(answers), conflicts: structuredClone(conflicts), flowcharts: structuredClone(flowcharts),
       }
-      await this.database.requirement_version.add({ id: versionId, projectId, changeType: 'UPDATE', summary: `确认主架构：${candidate.name}`, snapshot, createdAt: now })
-      await this.database.requirement_change.add({ id: changeId, projectId, versionId, requirementId: candidate.id, changeType: 'UPDATE', field: 'selectedArchitecture', oldValue: previous ? this.candidateFrom(previous) : null, newValue: candidate, createdAt: now })
-      const event: ArchitectureConfirmedEvent = { requestId: this.createId(), eventId: 1, type: 'architecture_confirmed', data: { architectureId: candidate.id }, timestamp: now }
+      await this.database.requirement_version.add({ id: versionId, projectId, changeType: 'UPDATE', summary: `确认主架构：${plainCandidate.name}`, snapshot, createdAt: now })
+      await this.database.requirement_change.add({ id: changeId, projectId, versionId, requirementId: plainCandidate.id, changeType: 'UPDATE', field: 'selectedArchitecture', oldValue: previous ? this.candidateFrom(previous) : null, newValue: plainCandidate, createdAt: now })
+      const event: ArchitectureConfirmedEvent = { requestId: this.createId(), eventId: 1, type: 'architecture_confirmed', data: { architectureId: plainCandidate.id }, timestamp: now }
       assertUuid(event.requestId, 'event request id')
       return { requirement: selected, event }
     })
@@ -94,11 +95,12 @@ export class ArchitectureRepository {
 
   private toRequirement(projectId: string, candidate: ArchitectureCandidate, confirmed: boolean,
     createdAt: string, updatedAt: string, manual = false): RequirementItem {
+    const plainCandidate = this.plainCandidate(candidate)
     return {
-      id: candidate.id, projectId, type: 'TECHNICAL_CONSTRAINT', title: candidate.name,
-      content: Object.entries(candidate.stack).map(([key, value]) => `${key}: ${value}`).join('\n'),
+      id: plainCandidate.id, projectId, type: 'TECHNICAL_CONSTRAINT', title: plainCandidate.name,
+      content: Object.entries(plainCandidate.stack).map(([key, value]) => `${key}: ${value}`).join('\n'),
       status: confirmed ? 'CONFIRMED' : 'PENDING', sourceType: manual ? 'USER_EDIT' : confirmed ? 'USER_ANSWER' : 'AI_RECOMMENDATION',
-      sourceId: null, locked: false, metadata: { kind: CANDIDATE_KIND, candidate: structuredClone(candidate), draft: !confirmed },
+      sourceId: null, locked: false, metadata: { kind: CANDIDATE_KIND, candidate: plainCandidate, draft: !confirmed },
       createdAt, updatedAt,
     }
   }
@@ -111,7 +113,26 @@ export class ArchitectureRepository {
   private candidateFrom(item: RequirementItem): ArchitectureCandidate | null {
     const candidate = item.metadata.candidate
     if (!candidate || typeof candidate !== 'object') return null
-    try { this.validateCandidate(candidate as ArchitectureCandidate); return structuredClone(candidate as ArchitectureCandidate) } catch { return null }
+    try { return this.plainCandidate(candidate as ArchitectureCandidate) } catch { return null }
+  }
+
+  private plainCandidate(candidate: ArchitectureCandidate): ArchitectureCandidate {
+    this.validateCandidate(candidate)
+    const scores = {} as ArchitectureCandidate['scores']
+    for (const dimension of SCORE_DIMENSIONS) scores[dimension] = candidate.scores[dimension]
+    return {
+      id: candidate.id,
+      name: candidate.name,
+      stack: Object.fromEntries(Object.entries(candidate.stack)),
+      responsibilities: [...candidate.responsibilities],
+      advantages: [...candidate.advantages],
+      disadvantages: [...candidate.disadvantages],
+      limitations: [...candidate.limitations],
+      unselectedReasons: [...candidate.unselectedReasons],
+      scores,
+      totalScore: candidate.totalScore,
+      recommended: candidate.recommended,
+    }
   }
 
   private validateCandidate(candidate: ArchitectureCandidate) {

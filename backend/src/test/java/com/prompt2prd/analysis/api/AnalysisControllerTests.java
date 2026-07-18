@@ -135,7 +135,9 @@ class AnalysisControllerTests {
                 .expectHeader().contentTypeCompatibleWith(MediaType.TEXT_EVENT_STREAM)
                 .expectBody(String.class)
                 .value(body -> org.assertj.core.api.Assertions.assertThat(body)
-                        .contains("event:analysis_started"));
+                        .contains("event:analysis_started")
+                        .contains("\"type\":\"analysis_started\"")
+                        .containsPattern("\"timestamp\":\"\\d{4}-\\d{2}-\\d{2}T"));
     }
 
     private RequirementState state() {

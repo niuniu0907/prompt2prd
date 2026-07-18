@@ -67,6 +67,30 @@ class PrdGeneratorTests {
         assertThat(state.requirements()).containsExactlyElementsOf(before);
     }
 
+    @Test
+    void prdPromptUsesOnlyTechnicalDecisionSummaryNotFullArchitectureCandidate() {
+        RequirementItem architecture = PrdTestFixtures.item(RequirementType.TECHNICAL_CONSTRAINT,
+                "Vue 3 + Spring Boot 单体",
+                "前端 Vue 3；后端 Spring Boot；部署 单容器",
+                RequirementStatus.CONFIRMED,
+                Map.of(
+                        "kind", "ARCHITECTURE_CANDIDATE",
+                        "candidate", Map.of(
+                                "totalScore", "30/35",
+                                "unselectedReasons", List.of("备选架构学习成本更高"),
+                                "scores", Map.of("LEARNING_COST", 5))));
+        var state = PrdTestFixtures.state(90, false, false, List.of(architecture));
+        PrdGenerator generator = new PrdGenerator(new CapturingGateway());
+        PrdGenerationPlan plan = generator.plan(state, List.of(), "architecture");
+
+        assertThat(plan.sections()).singleElement().satisfies(section -> {
+            assertThat(section.prompt())
+                    .contains("Confirmed technical decisions=")
+                    .contains("前端 Vue 3；后端 Spring Boot；部署 单容器")
+                    .doesNotContain("30/35", "unselectedReasons", "备选架构", "LEARNING_COST");
+        });
+    }
+
     private static ModelCallContext context() {
         return new ModelCallContext(UUID.randomUUID().toString(),
                 new ModelEndpoint(URI.create("http://localhost:11434"), "fixture", "key", Map.of()),

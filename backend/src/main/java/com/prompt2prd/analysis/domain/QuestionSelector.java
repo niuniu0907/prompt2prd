@@ -14,8 +14,14 @@ public final class QuestionSelector {
     private static final int DEFAULT_LIMIT = 10;
     private static final Set<String> CRITICAL_KEYWORDS = Set.of(
             "交易", "支付", "退款", "权限", "认证", "鉴权", "安全", "责任",
-            "状态", "transaction", "payment", "refund", "permission", "auth",
-            "security", "state");
+            "状态", "验收", "接口", "页面", "数据", "异常", "风险", "性能",
+            "transaction", "payment", "refund", "permission", "auth",
+            "security", "state", "acceptance", "api", "page", "data",
+            "exception", "risk", "performance", "productcontext",
+            "rolesscenarios", "featurescopepriorities", "corebusinessflow",
+            "userstories", "rulesexceptions", "pagesstates", "dataentitiesfields",
+            "apirequirements", "acceptancecriteria", "nonfunctional",
+            "assumptionsrisksopenitems");
 
     public List<ClarificationQuestion> select(List<QuestionCandidate> candidates) {
         return select(candidates, DEFAULT_LIMIT);

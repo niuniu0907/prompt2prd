@@ -32,8 +32,8 @@
 - `App.vue` 只承载 `RouterView`；`router/index.ts` 提供可注入 History 的路由工厂，当前包含项目首页 `/`、新建项目 `/projects/new` 和项目入口 `/projects/:projectId` 三条路由。
 - `AppShell.vue` 负责稳定的全局左导航和主画布插槽；全部项目、已归档和回收站会发出生命周期导航事件并保持唯一当前项，模型设置已启用并进入独立的 `/settings/model` 页面。
 - 路由已更新为嵌套结构：`/` 项目首页、`/projects/new` 新建项目、`/projects/:projectId` 项目工作台（含 6 个子路由 `overview`、`questions`、`requirements`、`architecture`、`flowchart`、`prd`），默认重定向至 `overview`。
-- `ProjectWorkspace.vue` 是项目工作台的顶层布局：包裹 `AppShell`，自行从 IndexedDB 加载项目数据，三栏布局由 `ProjectNavigation`（左）| `<router-view>` 主画布（中）| 可收起辅助面板（右）组成。流程图和 PRD 页面右侧面板默认收起以释放主画布宽度。
-- `ProjectNavigation.vue` 提供六个模块的二级导航，高亮当前活跃模块并发射 `navigate` 事件；`ProjectHeader.vue` 展示项目名称、阶段、完整度、模型、保存状态和"生成 PRD"按钮。
+- `ProjectWorkspace.vue` 是项目工作台的顶层布局：包裹 `AppShell`，自行从 IndexedDB 加载项目、分析状态和已确认架构，用同一状态源驱动顶部进度、生成 PRD 条件和辅助面板提醒。布局由 `ProjectNavigation`（左）、可手动调宽的项目模块列和居中的 `<router-view>` 主画布组成；辅助面板默认收起，有待确认事项或冲突时才显示带数量红点的抽屉入口，展开后覆盖在右侧，空内容时不占用主画布宽度。
+- `ProjectNavigation.vue` 提供六个模块的二级导航，高亮当前活跃模块并发射 `navigate` 事件；`ProjectHeader.vue` 展示项目名称、统一的四段进度（需求澄清、需求确认、架构选择、PRD生成）、总体进度、模型、保存状态和"生成 PRD"按钮。生成入口由工作台顶层根据已确认正式需求、待确认需求、待回答问题、已确认架构、核心冲突和 80% 完整度统一 gating；无正式需求时优先提示补充并确认需求，不再只显示 80% 门槛。
 - `ProjectHomeView.vue` 通过可注入的 `ProjectHomeRepository` 加载真实 IndexedDB 摘要，管理活动/归档/回收站视图、请求迟到保护、操作忙碌状态以及读取/写入失败反馈；失败不会把已有项目伪装为空列表。
 - `ProjectList.vue` 只负责网格布局和事件转发，`ProjectCard.vue` 展示名称、阶段、完整度、待确认数与更新时间，并把重命名、复制、归档、回收站、恢复和永久删除收进卡片菜单；永久删除仍需浏览器确认。
 - `ProjectEmptyState.vue` 为三种生命周期视图提供不同空状态，只有活动视图显示创建入口；首页顶部与空状态两个入口均进入同一个新建项目页，源码不创建示例项目或示例需求。
@@ -41,11 +41,12 @@
 - `RequirementFileUpload.vue` 负责 `.md`/`.txt` 文件选择、首次隐私确认、只读文本预览、片段准备进度与取消；只有全部片段完成本地顺序处理后才向新建项目页发出已确认文件，清除文件会恢复纯文字创建规则。
 - `fileParser.ts` 使用严格 UTF-8 解码，拒绝错误扩展名、超过 2 MiB、无法解码和空白文件；统一换行后优先沿 Markdown 标题和自然段边界分块，超长语义块按 Unicode 码点硬拆，单片最多 32,000 字符且所有片段重新连接后与解析全文一致。
 - `NewProjectView.vue` 在 Repository 创建成功后才跳转到带项目 UUID 的入口页，IndexedDB 失败时保留表单并提示未保存；`overview` 子路由现由 `AnalysisView.vue` 承载真实初始分析，其他未实现模块继续使用占位页。
-- `questions` 子路由由 `QuestionWizardView.vue` 承载：按当前最高优先级批次展示至多 10 个问题，`QuestionBatch/QuestionCard/AnswerForm` 分别负责批次、问题说明和四类输入。回答先本地提交，再携带当前结构化状态调用下一轮分析。
-- `requirements` 子路由由 `RequirementsView.vue` 承载：中央区域显示可编辑/可锁定需求卡片，页面辅助列显示冲突、AI 假设和版本历史；未解决核心冲突持续显示阻塞提示。
+- `questions` 子路由由 `QuestionWizardView.vue` 承载 AI 需求访谈：按当前最高优先级批次展示至多 10 个问题，页面明确说明 AI 已读取初始需求，用户回答后会继续追问或整理为需求卡片。页面展示 12 项"最终 PRD 至少覆盖"清单，并根据当前问题的 `targetField` 前缀或需求维度高亮本轮正在补齐的内容。`QuestionBatch/QuestionCard/AnswerForm` 分别负责本轮追问进度、问题说明和输入控件；主按钮为"提交回答，让 AI 继续追问"，至少回答 1 题后才可提交，仍保留整轮跳过入口。回答先本地提交，再携带当前结构化状态调用下一轮分析；当前批次结束且没有待回答问题时，页面直接提供"查看已整理需求"和"补充想法让 AI 继续追问"两个下一步操作。新生成问题必须带真实选项；旧版本遗留的 `TEXT/options=[]` 问题在前端显示为临时可选答案，并提示重新分析后会生成正式选项。若架构已确认但仍有待回答问题，问题向导只提示当前继续补齐 PRD 业务细节，不再把用户引回架构选择。
+- `overview` 子路由由 `AnalysisView.vue` 承载：恢复或分析后展示已确认需求、待确认内容、当前冲突和下一步主操作，避免只显示进度条与卡片而缺少行动指引；概览统计和 `RequirementSummary.vue` 只展示正式需求，排除 `metadata.kind = ARCHITECTURE_CANDIDATE` 的架构候选草稿。概览页与工作台顶部共用架构确认判断来源，读取 `ArchitectureRepository.selected(projectId)` 后决定下一步；正式需求为 0 时主操作改为“重新分析需求”，已确认架构后进入流程图或 PRD，不会继续引导到已完成的架构页；初始 AI 分析失败且尚未生成问题时，页面明确提示“AI 还没有生成澄清问题”，并按模型错误类型引导用户检查模型设置。
+- `requirements` 子路由由 `RequirementsView.vue` 承载：中央区域显示可编辑/可锁定需求卡片，页面辅助列显示冲突、AI 假设和版本历史；未解决核心冲突持续显示阻塞提示。需求卡片使用中文类型/状态标签，并把候选元数据或 `key: value` 正文拆成前端、后端、数据存储、AI 接入、测试、部署等字段，避免直接展示内部枚举和模型原始输出。正式需求过滤与结构化字段展示统一由 `requirementDisplay.ts` 提供；正式需求为 0 时显示独立空状态和“回到需求概览”主按钮，而不是空白卡片区。
 - `styles/tokens.css` 是当前前端视觉变量来源，严格使用设计文档的八个颜色 Token；主按钮和当前导航使用 `#c7eb64` 背景与 `#262b25` 文字，普通辅助文字使用 `#626d72`。
 - MVP 当前只声明浅色 `color-scheme`，不提供深色模式或主题开关。界面使用结构化间距、细边框和轻阴影，不依赖外部字体或装饰图片。
-- 桌面工作台基线为固定侧栏加弹性主画布，最小页面宽度 960 像素；真实项目卡片在 1280×800 验收时无横向溢出。
+- 桌面工作台基线为可调宽全局左栏、可调宽项目模块栏和弹性主画布，两个拖拽宽度会保存在当前浏览器 `localStorage`；最小页面宽度 960 像素，真实项目卡片在 1280×800 验收时无横向溢出。
 
 ## 状态与持久化边界
 
@@ -78,11 +79,11 @@
 
 - `analysis/domain` 使用 Java record 与枚举镜像前端项目摘要、需求项、澄清问题与答案、冲突和完整度契约；`contracts/analysis-state.sample.json` 是前后端共同解析的契约样例。需求状态仅为 `INFERRED/PENDING/CONFIRMED/CONFLICTED`，只有确认项允许锁定。
 - `CompletenessCalculator` 按十个固定维度权重计算：确认 100%、推测 40%、待确认与冲突 0%；缺口和未回答问题进入分母，不适用维度重归一化，未解决核心冲突使对应维度最高 50 分。
-- `QuestionSelector` 使用业务影响 40%、信息缺失 30%、依赖数量 20%、风险 10% 的固定公式；以标准化维度、目标字段、稳定语义键为主键，再以标准化文本精确去重，最多选择 10 个问题，高价值不足时允许少于 5 个。
+- `QuestionSelector` 使用业务影响 40%、信息缺失 30%、依赖数量 20%、风险 10% 的固定公式；以标准化维度、目标字段、稳定语义键为主键，再以标准化文本精确去重，最多选择 10 个问题，高价值不足时允许少于 5 个。同分排序会优先保留交易、权限、状态，以及页面、接口、数据、验收、非功能、风险等 PRD 交付必需问题。
 - `ValidatedRequirementPatch` 是模型候选补丁进入 `RequirementStateMerger` 的结构校验门；合并器执行重复过滤、来源优先级、锁定保护、矛盾冲突创建和完整度重算，采用 copy-on-write，失败不改变输入状态，且不依赖数据库或 Repository。
 - `AnswerPolicy` 将单题/整轮跳过保留为未确认问题；“不知道”生成带影响说明的 `AI_RECOMMENDATION/PENDING` 需求，接受后才转为 `USER_ANSWER/CONFIRMED`，拒绝后继续保持待确认，因此未确认路径均不增加完整度。
 - `AnalysisContextBuilder` 只向后续分析器提供项目摘要、当前需求、锁定需求、最新一轮问答、信息缺口、项目语言和输出 Schema；即使输入长历史，也不会把旧轮次正文拼入模型上下文。
-- `RequirementAnalyzer` 通过 `ModelGateway.generateStructured()` 获取完整 `AnalysisModelOutput`，先执行 Bean Validation、枚举和状态来源约束，再转换为候选补丁与问题；正式状态仍由 `RequirementStateMerger`、`QuestionSelector` 和 `CompletenessCalculator` 决定，模型不能直接创建 `CONFIRMED` 内容。
+- `RequirementAnalyzer` 通过 `ModelGateway.generateStructured()` 获取完整 `AnalysisModelOutput`，先执行 Bean Validation、枚举和状态来源约束，再转换为候选补丁与问题；正式状态仍由 `RequirementStateMerger`、`QuestionSelector` 和 `CompletenessCalculator` 决定，模型不能直接创建 `CONFIRMED` 内容。分析提示包含 12 项 PRD 覆盖清单：产品背景与目标、用户角色与使用场景、功能范围与优先级、核心业务流程、用户故事、业务规则与异常场景、页面清单与页面状态、数据实体与字段、接口需求、验收标准、非功能需求，以及假设、风险与待确认事项；模型必须围绕这些适用项继续追问或明确标记为已跳过/待确认。模型生成的澄清问题只允许 `SINGLE_SELECT` 或 `MULTI_SELECT`，且每题至少两个具体选项；开放式回答只作为前端自定义答案或补充说明处理，不再由模型输出 `TEXT` 问题。需求类型已补充 `NON_FUNCTIONAL_REQUIREMENT` 和 `RISK_OPEN_ITEM`，前端卡片使用中文标签展示。
 - `AnalysisOrchestrator` 把一次分析组织为 Reactor `Flux<StreamEvent>`，发送开始、进度、领域增量与单一终态；空闲 5 秒发送进度心跳，订阅取消会触发 `ModelCancellationSignal`。`AnalysisController` 的两个 POST SSE 入口共享相同编排边界，并在模型调用前执行额度策略。
 
 ## 架构推荐与确认边界
@@ -90,9 +91,9 @@
 - `architecture/api/TechnicalConstraintsRequest` 收集已掌握技术、自定义技术、目标终端、团队规模、用户量、关键能力、数据敏感度、部署、预算、周期和维护能力；除项目 UUID 外允许部分提交，所有未回答关键字段通过 `pendingFields` 原样返回，不由后端虚构默认答案。
 - `ArchitectureRecommender` 使用确定性模板和七维 1～5 分评分生成三个可比较候选；候选固定包含前端、后端、存储、鉴权、文件、AI、部署、测试、职责、优缺点、限制和未选择原因。Vue/Java/Spring Boot、个人维护、单体 Docker 样例会优先推荐 Vue + Spring Boot，同时保留全栈 TypeScript 备选。
 - `POST /api/architecture/recommend` 是无状态 JSON 接口，只校验约束并返回候选与待确认字段；后端不保存项目或替用户确认架构，也不消耗模型 Key。
-- `TechnicalConstraintsForm.vue` 支持完整或部分约束、自定义技术和敏感数据选择；`ArchitectureComparison.vue` 展示全部技术职责和七个评分维度，允许接受推荐、选择备选或基于任一候选手动修改。
+- `TechnicalConstraintsForm.vue` 支持完整或部分约束、自定义技术和敏感数据选择；`ArchitectureComparison.vue` 默认突出唯一推荐方案、推荐原因和采用按钮，详细比较通过"查看详细比较"展开后再展示 2～3 个候选、技术职责和七个评分维度；用户仍可接受推荐、选择备选或基于任一候选手动修改。
 - 架构候选复用现有 `requirement_item` 仓库，以 `TECHNICAL_CONSTRAINT/PENDING` 和 `metadata.kind = ARCHITECTURE_CANDIDATE` 保存草稿，不新增 IndexedDB 对象仓库。未选择候选不会计入完整度或待确认数。
-- `ArchitectureRepository.confirm()` 在单个 Dexie 事务中撤销旧主架构、写入唯一 `TECHNICAL_CONSTRAINT/CONFIRMED` 主架构、更新项目阶段与完整度快照，并创建完整版本和字段变更记录；切换确认可由既有版本恢复边界追踪。
+- `ArchitectureRepository.confirm()` 在单个 Dexie 事务中撤销旧主架构、写入唯一 `TECHNICAL_CONSTRAINT/CONFIRMED` 主架构、更新项目阶段与完整度快照，并创建完整版本和字段变更记录；确认入口会先把 Vue 响应式候选归一化为普通 JSON 对象，再执行 `structuredClone` 和 IndexedDB 写入；切换确认可由既有版本恢复边界追踪。
 - 每次本地确认返回统一形状的 `architecture_confirmed` 事件，携带 UUID 请求 ID、事件 ID 1、架构 ID 和 UTC 时间；后续 PRD 生成只应读取当前唯一确认项，其他候选保持备选草稿。
 
 ## 流程图生成与持久化边界
@@ -105,15 +106,15 @@
 
 ## PRD 定义、生成、编辑与流式边界
 
-- `PrdDefinition` 固定设计文档要求的 17 个有序章节，并为需求、用户故事、业务规则、接口、页面、验收和实施阶段提供确定性编号前缀；追溯检查要求每项核心功能至少关联一个用户故事、业务规则和验收条件。确定性指令只使用 `MUST`、`SHOULD` 和 `MUST NOT`。
-- `PrdGenerator.plan()` 只把 `CONFIRMED` 需求和唯一 `metadata.kind = ARCHITECTURE_CANDIDATE` 的确认架构送入章节提示词。完整度低于 80、没有或存在多个确认主架构、存在未解决核心冲突、或调用方仍提供缺失项时，整份计划固定为 `DRAFT` 并列出原因；生成过程不修改输入需求状态。
+- `PrdDefinition` 固定设计文档要求的 17 个有序章节，其中第 8 章为“技术决策摘要与工程约束”；并为需求、用户故事、业务规则、接口、页面、验收和实施阶段提供确定性编号前缀。追溯检查要求每项核心功能至少关联一个用户故事、业务规则和验收条件。确定性指令只使用 `MUST`、`SHOULD` 和 `MUST NOT`。
+- `PrdGenerator.plan()` 只把非架构类 `CONFIRMED` 需求和唯一 `metadata.kind = ARCHITECTURE_CANDIDATE` 的确认架构摘要送入章节提示词；确认架构只暴露 ID、标题和约束正文，不携带候选评分、备选理由或比较矩阵。完整度低于 80、没有或存在多个确认主架构、存在未解决核心冲突、或调用方仍提供缺失项时，整份计划固定为 `DRAFT` 并列出原因；生成过程不修改输入需求状态。
 - 每个章节通过 `ModelGateway.streamText()` 独立生成。`PrdStreamOrchestrator` 顺序发送 `section_started`、有序 `section_delta`、`section_completed` 或 `section_failed`；单章节失败不丢弃已完成章节，也不阻止后续章节，总任务只产生一个完成、失败或取消终态。
 - `POST /api/generation/prd` 生成全部 17 章并按一次完整 PRD 操作执行额度策略；`POST /api/generation/prd/sections/{sectionId}` 只生成一个稳定章节键并仅执行频率与真实上游调用预算检查。连接取消会向共享模型取消信号传播。
-- 前端 `PrdView.vue` 组合章节列表、编辑/预览切换和全部/单章生成；`PrdEditor.vue` 支持 Markdown 编辑和 2 秒失焦自动保存；`PrdPreview.vue` 使用 `markdown-it({ html: false })` 安全渲染，禁止原始 HTML。
+- 前端 `PrdView.vue` 组合章节状态统计、加宽章节列表、当前章节工具栏、编辑/预览切换和全部/单章生成；`PrdEditor.vue` 支持 Markdown 编辑和 2 秒失焦自动保存并填满主编辑区；`PrdPreview.vue` 使用 `markdown-it({ html: false })` 安全渲染，禁止原始 HTML。章节列表显示草稿、生成中、已完成和失败状态，避免混淆尚未生成、生成失败和已有内容。
 - `PrdRepository` 通过 IndexedDB 持久化 17 个章节，支持初始化、内容更新、状态变更、锁定切换、显式保存和生成内容写入；保存操作在事务中同步创建版本记录并推进项目阶段。锁定章节的内容更新和重新生成均被拒绝。
 - `PrdRegenerationDialog.vue` 在重新生成前展示旧版备份提示和人工内容覆盖警告，要求用户显式勾选确认；`PrdRepository.saveBeforeRegeneration()` 在重生成前创建历史版本以便恢复。
 - 后端 `PrdChangeAnalyzer` 在保存或退出编辑模式时分析片段差异，提取编号事实和数值变化匹配已确认需求；唯一匹配自动同步，多匹配或锁定目标生成待确认变更或冲突警告。对应前端导出 `analyzePrdChanges()`。
-- 后端 `PrdValidator` 验证 17 章节完整性、稳定编号、交叉引用、架构标记、验收 Given/When/Then 和实施阶段编号；备选架构混入最终文档时产生警告。对应前端 `exportPrdMarkdown()` 合并已完成/草稿章节为 Markdown 文件，`sanitizeFileName()` 清理非法文件名字符，`downloadPrdFile()` 触发浏览器下载。
+- 后端 `PrdValidator` 验证 17 章节完整性、稳定编号、交叉引用、技术决策摘要、验收 Given/When/Then 和实施阶段编号；空技术摘要不再阻断草稿校验，但详细架构设计、评分比较或备选架构混入最终文档时产生警告。对应前端 `exportPrdMarkdown()` 合并已完成/草稿章节为 Markdown 文件，`sanitizeFileName()` 清理非法文件名字符，`downloadPrdFile()` 触发浏览器下载。
 - 后端继续无状态，不保存 PRD 或反向修改项目。前端 PRD 路由已从占位页切换到 `PrdView`，阶段七全部完成。
 
 ## AI 与流式边界
@@ -125,7 +126,7 @@
 - 测试侧 `FakeModelGateway` 可确定性模拟成功、格式错误、延迟和取消，不访问真实模型；架构测试阻止 `analysis`、`architecture` 和 `generation` 包依赖模型适配器或厂商客户端。
 - `model/adapter/SpringAiModelGateway` 使用 Spring AI 2.0 `OpenAiChatModel` 与 `ChatClient` 实现运行时 OpenAI 兼容调用；OpenAI、DeepSeek 预设只提供标准兼容地址，其他 OpenAI 兼容服务继续使用同一适配边界。
 - `ModelGateway.listModels()` 通过已校验的 Base URL 和当前 Key 调用对应 OpenAI 兼容服务的 `GET /models`，返回官方模型 ID 与展示友好名称；该请求与连接测试一样经过频率限制、上游调用预算、地址安全策略、禁用重定向和 DNS 固定。
-- 结构化调用通过 `BeanOutputConverter` 在完整响应到达后一次转换为 DTO；同步 Spring AI 调用运行在 bounded-elastic 调度器，文本生成使用 `ChatClient.stream().content()` 保持真实 `Flux` 增量并生成递增片段序号。
+- 结构化调用通过 `BeanOutputConverter` 在完整响应到达后一次转换为 DTO；同步 Spring AI 调用运行在 bounded-elastic 调度器，文本生成使用 `ChatClient.stream().content()` 保持真实 `Flux` 增量并生成递增片段序号。OpenAI 和普通兼容服务继续使用 JSON Schema 响应格式；DeepSeek 端点或 `deepseek-*` 模型 ID 使用 `json_object` 兼容模式，并在结构化提示中明确要求只返回 JSON。需求分析输出契约包含顶层字段、需求项字段、问题项字段、选项字段和允许的枚举值，并将澄清问题输入类型收紧为单选或多选，避免 DeepSeek JSON 模式只返回语法合法但字段不完整、或没有可选项的问题对象；最终仍由后端 DTO、Bean Validation 和业务规则校验。
 - `EndpointAddressPolicy` 在每次调用前拒绝非 HTTP(S)、内嵌凭据、查询/片段和危险解析地址；公网只允许 HTTPS，本机只有 `localhost`、`127.0.0.1`、`::1` 可使用 HTTP，其他私网 HTTPS 仅在 `PROMPT2PRD_MODEL_PRIVATE_HOST_ALLOWLIST` 显式允许时可用。
 - `SecureOpenAiHttpClient` 将 OkHttp DNS 固定到策略已验证的同一组 IP，并关闭 HTTP/HTTPS 自动重定向与连接失败重试，避免校验后再次解析导致 DNS 重绑定或重定向绕过。
 - `ModelProperties` 只绑定服务端 `PROMPT2PRD_MODEL_SYSTEM_KEY_ENABLED` 与 `PROMPT2PRD_MODEL_SYSTEM_API_KEY`；系统 Key 只有在开关为真且密钥非空时才可用，缺少任一条件均保持关闭。
@@ -147,8 +148,8 @@
 - 业务模块只依赖 `ModelGateway`；自动测试使用假网关，不调用真实模型。
 - 结构化模型结果完整聚合并校验后才进入状态合并器；PRD 文本使用真实流式输出。
 - SSE 使用 `requestId` 和递增 `eventId` 幂等处理；未知事件记录后忽略，已知非法事件终止任务。
-- 后端 `StreamEventSequence` 固定 15 类事件、每请求从 1 递增且终态后拒绝继续发出事件。前端 `consumePostSse()` 增量解析任意分片，绑定首个请求 ID，忽略重复/迟到或其他请求事件，拒绝序号缺口、非法已知事件和无终态断流。
-- 前端 `createAnalysisClient()` 保证同一客户端只有最新分析可交付事件与结果；`AnalysisView` 先展示流式临时状态，只有 `generation_completed.finalState` 才调用 `AnalysisStateRepository.saveFinal()`。该 Repository 在单个 Dexie 事务内更新项目摘要、需求、问题、答案、冲突和完整度快照，失败不会把半成品覆盖到最后有效状态。
+- 后端 `StreamEventSequence` 固定 15 类事件、每请求从 1 递增且终态后拒绝继续发出事件。WebFlux JSON 编码统一使用项目自定义 Jackson 配置，`Instant` 必须输出 ISO-8601 字符串，`StreamEventType` 必须输出小写 wire name，避免前端 SSE 协议校验把合法事件误判为畸形事件。前端 `consumePostSse()` 增量解析任意分片，绑定首个请求 ID，忽略重复/迟到或其他请求事件，拒绝序号缺口、非法已知事件和无终态断流；`generation_failed.errorCode` 会被转换为中文可操作提示，覆盖模型不可达、Key 错误、模型不存在、限流、超时和结构化输出失败。
+- 前端 `createAnalysisClient()` 保证同一客户端只有最新分析可交付事件与结果；`AnalysisView` 先展示流式临时状态，只有 `generation_completed.finalState` 才调用 `AnalysisStateRepository.saveFinal()`。该 Repository 在单个 Dexie 事务内更新项目摘要、需求、问题、答案、冲突和完整度快照，并保留既有架构候选记录；失败不会把半成品覆盖到最后有效状态。
 - 后端 `GenerationTaskRegistry` 按项目跟踪当前生成请求；新请求会取代旧请求，调用方必须在持久化前检查请求仍为当前任务。前端 `useGenerationTask()` 统一管理 `AbortController`、任务版本号、完成/失败/取消状态，分析、架构、流程图和 PRD 结果都通过版本检查丢弃迟到写回。
 - `GenerationProperties` 与 `StreamRetryConfig` 集中描述连接超时、总超时、最大重试次数、退避和心跳窗口；只对可恢复网络错误执行有限重试，鉴权、参数和结构业务错误不重试，流式空闲期间继续发送心跳。
 - `InputSanitizer` 统一限制单字段文本、上传大小和请求体大小；`LogSanitizer` 只允许记录请求 ID、任务类型、耗时、错误类别和计数，并会裁剪或脱敏用户文本、Bearer、API Key、Authorization、Token、密码等敏感片段。

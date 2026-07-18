@@ -1,6 +1,7 @@
 package com.prompt2prd.common.config;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.SerializationFeature;
 import com.fasterxml.jackson.module.paramnames.ParameterNamesModule;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -26,7 +27,8 @@ public class JacksonConfiguration implements WebFluxConfigurer {
     ObjectMapper prompt2prdObjectMapper() {
         return new ObjectMapper()
                 .findAndRegisterModules()
-                .registerModule(new ParameterNamesModule());
+                .registerModule(new ParameterNamesModule())
+                .disable(SerializationFeature.WRITE_DATES_AS_TIMESTAMPS);
     }
 
     @Override

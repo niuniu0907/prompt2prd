@@ -19,20 +19,51 @@ describe('QuestionWizardView', () => {
     }
     const client = { submitAnswers: vi.fn(async (_body: AnalysisAnswersRequestBody) => completed), cancel: vi.fn() }
     const wrapper = mount(QuestionWizardView, {
-      props: { projectId: initial.project.id, stateStore, clarification, client, modelSettings: {} },
+      props: {
+        projectId: initial.project.id,
+        stateStore,
+        clarification,
+        architectureSelected: vi.fn(async () => null),
+        client,
+        modelSettings: {},
+      },
       global: { plugins: [createPinia()] },
     })
     await flushPromises()
-    await wrapper.get('[data-testid="text-refund-window"]').setValue('7 天')
+    await wrapper.get('[data-testid="option-refund-window-:0"]').setValue(true)
     await wrapper.get('[data-testid="submit-batch"]').trigger('click')
     await flushPromises()
 
     expect(clarification.submitBatch).toHaveBeenCalledTimes(1)
     expect(client.submitAnswers).toHaveBeenCalledTimes(1)
     const body = client.submitAnswers.mock.calls[0]![0]
-    expect(body.answers[0]).toMatchObject({ question: '退款期限是多少？', answer: '7 天' })
+    expect(body.answers[0]).toMatchObject({ question: '退款期限是多少？', answer: '采用常见默认规则' })
     expect(stateStore.saveFinal).toHaveBeenCalledTimes(1)
-    expect(wrapper.text()).toContain('本轮问题已完成')
+    expect(wrapper.text()).toContain('AI 已根据回答更新需求，当前没有新的追问。')
+    expect(wrapper.text()).toContain('这一轮问题已回答完')
+  })
+
+  it('makes confirmed architecture explicit while requirement questions remain', async () => {
+    const initial = state()
+    const wrapper = mount(QuestionWizardView, {
+      props: {
+        projectId: initial.project.id,
+        stateStore: { load: vi.fn(async () => initial), saveFinal: vi.fn() },
+        architectureSelected: vi.fn(async () => ({ id: '50000000-0000-4000-8000-000000000000' })),
+        clarification: { submitBatch: vi.fn() },
+        client: { submitAnswers: vi.fn(), cancel: vi.fn() },
+        modelSettings: {},
+      },
+      global: { plugins: [createPinia()] },
+    })
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('AI 已读取你的初始需求')
+    expect(wrapper.text()).toContain('最终 PRD 至少覆盖')
+    expect(wrapper.text()).toContain('产品背景与目标')
+    expect(wrapper.text()).toContain('接口需求')
+    expect(wrapper.text()).toContain('假设、风险与待确认事项')
+    expect(wrapper.text()).toContain('架构方案已确认，不需要再选择方案')
   })
 })
 

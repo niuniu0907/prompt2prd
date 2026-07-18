@@ -1,5 +1,7 @@
 package com.prompt2prd.stream;
 
+import com.fasterxml.jackson.annotation.JsonValue;
+
 import java.util.Set;
 
 public enum StreamEventType {
@@ -29,6 +31,7 @@ public enum StreamEventType {
         this.requiredDataFields = Set.of(requiredDataFields);
     }
 
+    @JsonValue
     public String wireName() {
         return wireName;
     }
