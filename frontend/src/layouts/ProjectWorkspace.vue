@@ -58,7 +58,6 @@ let projectNavStartWidth = 0
 const displayProject = computed(() => analysisState.value?.project ?? project.value)
 const formalRequirements = computed(() => (analysisState.value?.requirements ?? []).filter(isFormalRequirement))
 const pendingRequirements = computed(() => formalRequirements.value.filter(item => item.status === 'PENDING'))
-const confirmedRequirements = computed(() => formalRequirements.value.filter(item => item.status === 'CONFIRMED'))
 const unanalyzedRequirements = computed(() => (analysisState.value?.requirements ?? [])
   .filter(item => item.status === 'UNANALYZED' || item.type === 'MISSING_INFORMATION'))
 const pendingQuestions = computed(() => (analysisState.value?.questions ?? []).filter(item => item.status === 'PENDING'))
@@ -71,37 +70,23 @@ const hasAnalysisContent = computed(() => Boolean(analysisState.value)
     || (analysisState.value?.questions.length ?? 0) > 0
     || (analysisState.value?.answers.length ?? 0) > 0
     || (analysisState.value?.conflicts.length ?? 0) > 0))
-const progressItems = computed<Array<{ label: string; value: string; tone: 'done' | 'pending' | 'blocked' }>>(() => [
-  {
-    label: '已确认',
-    value: `${confirmedRequirements.value.length}项`,
-    tone: 'done',
-  },
-  {
-    label: '待确认',
-    value: `${pendingRequirements.value.length}项`,
-    tone: 'pending',
-  },
-  {
-    label: '待分析',
-    value: `${unanalyzedRequirements.value.length + pendingQuestions.value.length}项`,
-    tone: 'pending',
-  },
-  {
-    label: '冲突',
-    value: `${openConflicts.value.length}项`,
-    tone: openConflicts.value.length ? 'blocked' : 'pending',
-  },
-])
-const canGeneratePrd = computed(() => hasAnalysisContent.value)
+const sufficientCompletenessThreshold = 80
+const canGeneratePrd = computed(() => hasAnalysisContent.value
+  && totalProgress.value >= sufficientCompletenessThreshold
+  && coreConflictCount.value === 0)
 const generateHint = computed(() => {
-  if (!hasAnalysisContent.value) return '首次 AI 解析完成后即可生成 PRD 草稿。'
-  const waiting = unanalyzedRequirements.value.length + pendingQuestions.value.length
-  if (totalProgress.value < 100 || waiting > 0) {
-    return `当前完整度为 ${totalProgress.value}%，仍有 ${waiting} 项待分析。可以继续澄清，也可以先生成PRD草稿。`
+  if (!hasAnalysisContent.value) return '首次 AI 解析完成后会进入 AI 澄清。'
+  const waiting = pendingRequirements.value.length + unanalyzedRequirements.value.length + pendingQuestions.value.length
+  if (coreConflictCount.value > 0) {
+    return `当前完整度为 ${totalProgress.value}%，仍有 ${coreConflictCount.value} 个核心冲突。请先处理冲突或继续澄清。`
   }
-  if (coreConflictCount.value > 0) return '当前存在冲突，PRD 会标记为待处理；也可以先生成当前版本。'
-  return '关键信息已经足够，可以生成PRD。你也可以继续补充细节。'
+  if (totalProgress.value < sufficientCompletenessThreshold) {
+    return `当前完整度为 ${totalProgress.value}%，信息还不够完整，请继续在 AI 澄清中回答下一轮问题。`
+  }
+  if (waiting > 0) {
+    return `当前完整度为 ${totalProgress.value}%，已达到生成条件；仍有 ${waiting} 项待确认或待分析，可继续澄清后再生成。`
+  }
+  return '关键信息已达到生成条件，可以生成PRD。你也可以继续补充细节。'
 })
 const panelAttentionCount = computed(() =>
   pendingRequirements.value.length + pendingQuestions.value.length + openConflicts.value.length)
@@ -243,7 +228,6 @@ function goHome() {
         :stage="displayProject.stage"
         :model-name="modelName"
         :save-status="saveStatus"
-        :progress-items="progressItems"
         :can-generate-prd="canGeneratePrd"
         :generate-hint="generateHint"
         @generate-prd="handleGeneratePrd"
@@ -331,7 +315,10 @@ function goHome() {
 .workspace {
   display: flex;
   flex-direction: column;
+  height: 100vh;
   min-height: 100vh;
+  min-width: 0;
+  overflow: hidden;
   background: var(--color-background);
 }
 
@@ -370,14 +357,13 @@ function goHome() {
   display: grid;
   flex: 1;
   min-height: 0;
+  overflow: hidden;
 }
 
 .workspace__body-resizer {
-  position: sticky;
-  top: 0;
   z-index: 4;
-  height: calc(100vh - 58px);
-  min-height: 100%;
+  height: 100%;
+  min-height: 0;
   cursor: col-resize;
   background: transparent;
 }

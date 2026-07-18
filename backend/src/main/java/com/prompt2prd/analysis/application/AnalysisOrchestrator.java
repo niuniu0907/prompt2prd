@@ -48,7 +48,8 @@ public class AnalysisOrchestrator {
             Flux<StreamEvent> heartbeat = Flux.interval(HEARTBEAT_INTERVAL)
                     .takeUntilOther(result)
                     .map(ignored -> sequence.next(StreamEventType.ANALYSIS_PROGRESS,
-                            Map.of("progress", 50, "message", "分析仍在进行")));
+                            Map.of("progress", heartbeatProgress(ignored),
+                                    "message", heartbeatMessage(ignored))));
             Flux<StreamEvent> completed = result.flatMapMany(value -> resultEvents(
                     sequence, execution.currentState(), value));
 
@@ -65,6 +66,15 @@ public class AnalysisOrchestrator {
                                     "retryable", retryable(failure)))))
                     .doOnCancel(execution.modelContext().cancellation()::cancel);
         });
+    }
+
+    private int heartbeatProgress(long heartbeatIndex) {
+        return Math.min(90, 20 + Math.toIntExact(Math.min(heartbeatIndex, 14)) * 5);
+    }
+
+    private String heartbeatMessage(long heartbeatIndex) {
+        long elapsedSeconds = (heartbeatIndex + 1) * HEARTBEAT_INTERVAL.toSeconds();
+        return "AI 正在分析，已等待 " + elapsedSeconds + " 秒";
     }
 
     private Flux<StreamEvent> resultEvents(

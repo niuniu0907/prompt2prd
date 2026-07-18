@@ -283,6 +283,34 @@ describe('ProjectRepository', () => {
     })
   })
 
+  it('updates the original prompt for inline clarification edits and survives reopen', async () => {
+    const { database, repository, databaseName } = createTestContext()
+    const project = await repository.create(projectInput(uuid(70), '原始需求项目', baseTime))
+
+    const updated = await repository.updateOriginalPrompt(
+      project.id,
+      '这是用户在 AI 澄清页修改后的原始需求',
+      '2026-07-17T08:16:00.000Z',
+    )
+
+    expect(updated).toMatchObject({
+      id: project.id,
+      originalPrompt: '这是用户在 AI 澄清页修改后的原始需求',
+      updatedAt: '2026-07-17T08:16:00.000Z',
+    })
+    await expect(repository.updateOriginalPrompt(project.id, '短', '2026-07-17T08:17:00.000Z')).rejects.toThrow(
+      'original prompt must contain at least 5 Unicode characters',
+    )
+
+    database.close()
+    const reopened = createAppDatabase(databaseName)
+    const reopenedRepository = new ProjectRepository(reopened)
+    await expect(reopenedRepository.getById(project.id)).resolves.toMatchObject({
+      originalPrompt: '这是用户在 AI 澄清页修改后的原始需求',
+    })
+    reopened.close()
+  })
+
   it('preserves the temporary name when the model suggestion is blank', async () => {
     const { repository } = createTestContext()
     const project = await repository.create(projectInput(uuid(8), '保留临时名称', baseTime))

@@ -26,6 +26,7 @@ import reactor.core.publisher.Mono;
 
 import java.time.Clock;
 import java.time.Instant;
+import java.util.Arrays;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
@@ -36,6 +37,8 @@ import java.util.function.Supplier;
 
 @Component
 public final class RequirementAnalyzer implements AnalysisEngine {
+
+    private static final int SUFFICIENT_COMPLETENESS_THRESHOLD = 80;
 
     static final String OUTPUT_SCHEMA = """
             {
@@ -254,6 +257,15 @@ public final class RequirementAnalyzer implements AnalysisEngine {
             var completeness = completenessCalculator.calculate(new CompletenessInput(
                     merged.state().requirements(), questions, merged.state().conflicts(),
                     java.util.Set.of(), java.util.Map.of()));
+            if (shouldContinueClarification(selected, questions, completeness)) {
+                UUID fallbackBatchId = idGenerator.get();
+                selected = questionSelector.select(fallbackQuestionCandidates(
+                        merged.state(), questions, fallbackBatchId, now));
+                questions.addAll(selected);
+                completeness = completenessCalculator.calculate(new CompletenessInput(
+                        merged.state().requirements(), questions, merged.state().conflicts(),
+                        java.util.Set.of(), java.util.Map.of()));
+            }
             RequirementState finalState = new RequirementState(
                     merged.state().project().withCompleteness(completeness.total()),
                     merged.state().requirements(), questions, merged.state().answers(),
@@ -270,6 +282,99 @@ public final class RequirementAnalyzer implements AnalysisEngine {
         } catch (IllegalArgumentException | NullPointerException exception) {
             throw new AnalysisRetryableException("Structured analysis output contains invalid values", exception);
         }
+    }
+
+    private boolean shouldContinueClarification(
+            List<ClarificationQuestion> selected,
+            List<ClarificationQuestion> questions,
+            com.prompt2prd.analysis.domain.CompletenessScore completeness) {
+        return selected.isEmpty()
+                && completeness.total() < SUFFICIENT_COMPLETENESS_THRESHOLD
+                && questions.stream().noneMatch(question -> question.status() == QuestionStatus.PENDING);
+    }
+
+    private List<com.prompt2prd.analysis.domain.QuestionCandidate> fallbackQuestionCandidates(
+            RequirementState current,
+            List<ClarificationQuestion> existingQuestions,
+            UUID batchId,
+            Instant now) {
+        String language = current.project().language();
+        return Arrays.stream(PrdCoverageArea.values())
+                .filter(area -> existingQuestions.stream().noneMatch(question ->
+                        question.targetField().startsWith(area.key() + ".")
+                                || question.semanticKey().startsWith(area.key())))
+                .limit(5)
+                .map(area -> fallbackQuestionCandidate(current, area, batchId, now, language))
+                .toList();
+    }
+
+    private com.prompt2prd.analysis.domain.QuestionCandidate fallbackQuestionCandidate(
+            RequirementState current,
+            PrdCoverageArea area,
+            UUID batchId,
+            Instant now,
+            String language) {
+        ClarificationQuestion question = new ClarificationQuestion(
+                idGenerator.get(), current.project().id(), batchId,
+                fallbackQuestionText(area, language),
+                fallbackQuestionReason(area, language),
+                area.dimension(), area.key() + ".fallback",
+                area.key() + "-fallback", QuestionInputType.SINGLE_SELECT,
+                fallbackOptions(area, language), 0, QuestionStatus.PENDING, now, now);
+        return new com.prompt2prd.analysis.domain.QuestionCandidate(question, 4, 5, 3, 3);
+    }
+
+    private List<ClarificationOption> fallbackOptions(PrdCoverageArea area, String language) {
+        boolean zh = language != null && language.toLowerCase(Locale.ROOT).startsWith("zh");
+        String[][] values = switch (area) {
+            case PRODUCT_CONTEXT -> zh
+                    ? new String[][]{{"先明确产品目标", "帮助 PRD 说明为什么要做以及成功信号"}, {"先明确非目标", "避免后续开发范围发散"}}
+                    : new String[][]{{"Clarify the product goal", "Defines why the product exists and the success signal"}, {"Clarify non-goals", "Keeps implementation scope focused"}};
+            case ROLES_SCENARIOS -> zh
+                    ? new String[][]{{"先按单一核心角色设计", "适合快速完成 MVP 主流程"}, {"需要多角色协作", "会补充权限、场景和交接规则"}}
+                    : new String[][]{{"Start with one core role", "Fits an MVP flow"}, {"Use multiple collaborating roles", "Adds permissions and handoff rules"}};
+            case FEATURE_SCOPE_PRIORITIES -> zh
+                    ? new String[][]{{"只做最小功能闭环", "优先交付核心流程"}, {"先列完整功能范围", "便于后续拆分优先级"}}
+                    : new String[][]{{"Build the minimum feature loop", "Prioritizes the core delivery flow"}, {"List the full feature scope", "Helps split later priorities"}};
+            case CORE_BUSINESS_FLOW, USER_STORIES -> zh
+                    ? new String[][]{{"按主流程继续确认", "补齐从开始到完成的关键步骤"}, {"按用户价值继续确认", "补齐角色目标和使用结果"}}
+                    : new String[][]{{"Continue with the main flow", "Completes the steps from start to finish"}, {"Continue with user value", "Completes role goals and outcomes"}};
+            case RULES_EXCEPTIONS -> zh
+                    ? new String[][]{{"先确认正常业务规则", "补齐限制、状态和责任"}, {"先确认异常处理", "补齐失败、取消和争议场景"}}
+                    : new String[][]{{"Clarify normal business rules", "Completes limits, states, and responsibility"}, {"Clarify exception handling", "Covers failure, cancellation, and dispute scenarios"}};
+            case PAGES_STATES -> zh
+                    ? new String[][]{{"只列核心页面", "适合先产出开发入口"}, {"补充页面状态和操作", "让 PRD 更利于实现和验收"}}
+                    : new String[][]{{"List core pages only", "Good enough to start implementation"}, {"Include page states and actions", "Improves implementation and testing clarity"}};
+            case DATA_ENTITIES_FIELDS -> zh
+                    ? new String[][]{{"只描述核心数据实体", "先明确对象关系"}, {"补充关键字段和状态", "减少后续接口和存储歧义"}}
+                    : new String[][]{{"Describe core entities only", "Clarifies object relationships"}, {"Include key fields and states", "Reduces API and storage ambiguity"}};
+            case ACCEPTANCE_CRITERIA -> zh
+                    ? new String[][]{{"先写业务验收规则", "便于确认功能是否达标"}, {"补充 Given/When/Then", "便于后续自动化测试"}}
+                    : new String[][]{{"Use business acceptance rules", "Clarifies whether features are done"}, {"Use Given/When/Then scenarios", "Helps later automated testing"}};
+            case NON_FUNCTIONAL -> zh
+                    ? new String[][]{{"优先确认隐私和安全", "减少敏感信息和权限风险"}, {"优先确认性能和兼容性", "明确运行环境和响应要求"}}
+                    : new String[][]{{"Prioritize privacy and security", "Reduces sensitive data and permission risk"}, {"Prioritize performance and compatibility", "Defines runtime and response expectations"}};
+            case ASSUMPTIONS_RISKS_OPEN_ITEMS -> zh
+                    ? new String[][]{{"把不确定内容列为待确认", "允许继续追问而不虚构结论"}, {"把主要风险转成问题", "优先解决会影响开发的决策"}}
+                    : new String[][]{{"Keep unknowns as open items", "Allows follow-up without inventing conclusions"}, {"Turn major risks into questions", "Prioritizes decisions that affect implementation"}};
+        };
+        return List.of(
+                new ClarificationOption(idGenerator.get(), values[0][0], values[0][1], true),
+                new ClarificationOption(idGenerator.get(), values[1][0], values[1][1], false));
+    }
+
+    private String fallbackQuestionText(PrdCoverageArea area, String language) {
+        boolean zh = language != null && language.toLowerCase(Locale.ROOT).startsWith("zh");
+        return zh
+                ? "关于「" + area.label() + "」，下一步你希望先确认哪类信息？"
+                : "For " + area.label() + ", what should we clarify next?";
+    }
+
+    private String fallbackQuestionReason(PrdCoverageArea area, String language) {
+        boolean zh = language != null && language.toLowerCase(Locale.ROOT).startsWith("zh");
+        return zh
+                ? "当前信息还没有达到生成 PRD 的最低完整度，需要继续补齐这一块。"
+                : "The current information is below the minimum PRD completeness threshold, so this area needs another clarification step.";
     }
 
     private ValidatedRequirementPatch toPatch(

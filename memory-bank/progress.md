@@ -1,14 +1,17 @@
 # Prompt2PRD Progress
 
-> 当前阶段：阶段一至阶段八已完成，阶段九步骤 50～54 已完成；2026-07-18 已完成产品逻辑重构，主流程统一为“需求输入 → AI澄清 → 需求结果 → PRD文档”，架构建议和流程图转为折叠可选工具；首次 AI 解析成功后即可生成当前 PRD 草稿，生成不再要求 100%、需求全部确认、架构选择或流程图完成。下一步执行步骤 55（完成 JAR 与 Docker 交付）。
+> 当前阶段：阶段一至阶段八已完成，阶段九步骤 50～54 已完成；2026-07-18 已完成产品逻辑重构，主流程统一为“需求输入 → AI澄清 → 需求结果 → PRD文档”，架构建议和流程图转为折叠可选工具；首次 AI 解析成功后自动进入 AI 澄清，需求完整度未达 80% 或仍有核心冲突时继续追问，不进入低完整度 PRD 草稿页。下一步执行步骤 55（完成 JAR 与 Docker 交付）。
 
 ## 已完成
 
 - 产品设计文档、技术栈和 57 步实施计划已经建立。
 - 2026-07-18 产品逻辑重构已完成：工作台一级主导航只保留“需求输入、AI澄清、需求结果、PRD文档”；“流程图、架构建议”保留在默认折叠的“更多工具”中，不再作为主流程必经模块，也不影响 PRD 生成。
-- 2026-07-18 顶部状态已从流程进度改为“需求完整度”，并展示已确认、待确认、待分析和冲突数量；PRD 生成条件改为首次 AI 解析产生真实分析内容后即可启用，待确认、待分析、冲突、架构选择、流程图和 100% 完整度均不再阻塞生成。
+- 2026-07-18 需求输入完成后的跳转和 AI 澄清交互已重构：首次分析保存成功后使用 `router.replace` 自动进入当前项目 AI 澄清页，需求输入页不再展示完整待回答问题列表，只显示“原始需求解析完成”小型状态提示。
+- 2026-07-18 AI 澄清页恢复为每轮最多 10 题的批量回答体验：本轮提交后先写入本地 IndexedDB，如果已有下一批问题则当前页立即切换并允许继续作答，同时后台整理上一轮回答并预生成后续问题；生成失败保留本地回答和当前页面状态并允许重试。
+- 2026-07-18 AI 澄清页新增“编辑原始需求”弹窗，直接写回项目原始需求，不要求用户切回需求输入页；顶部栏持续状态收敛为只显示需求完整度和 PRD 生成提示，不再把待确认/待分析计数混入顶部。
+- 2026-07-18 顶部状态已从流程进度改为“需求完整度”，并展示已确认、待确认、待分析和冲突数量；PRD 生成条件改为已有真实分析内容、需求完整度至少 80% 且无核心冲突，待确认、待分析、架构选择和流程图不再阻塞生成。
 - 2026-07-18 PRD 主文档定义调整为 12 个需求章节：产品背景与目标、目标用户与使用场景、产品范围、功能模块与优先级、用户故事、业务规则、异常场景、页面清单与页面状态、数据需求、验收标准、非功能需求、风险/假设与待确认事项；接口设计、数据库表设计、架构建议和流程图作为可选扩展处理。
-- 2026-07-18 AI 澄清页已收敛为单题访谈：每次只展示一条主要问题，支持选择、补充、采用 AI 建议、跳过、提交并继续和暂时生成 PRD；采用 AI 建议只预填，用户提交后才变为已确认。
+- 2026-07-18 AI 澄清页已调整为本轮批量访谈：集中展示当前最高优先级问题所在批次，支持选择、补充、整轮采用 AI 建议、整轮跳过和提交本轮回答；采用 AI 建议只预填，用户提交后才变为已确认。
 - 2026-07-18 需求状态模型补齐为未分析、待确认、已确认、已跳过、不适用、存在冲突以及 AI 推断兼容状态；AI 推断不会自动转为已确认，完整度按关键需求覆盖计算而非页面流程计算。
 - 2026-07-18 PRD 生成提示已重写：只按当前信息生成，AI 推断标记“待确认”，未分析章节保留并显示“待分析”，跳过内容显示“用户暂未提供”，禁止补编未提及的登录、支付、权限、数据库、部署、接口、架构或流程图细节。
 - 2026-07-18 需求卡片新增“查看详情、生成验收标准、生成流程图”操作；流程图只从用户选中的复杂需求进入生成，不再默认针对整个项目生成。
@@ -42,6 +45,11 @@
 
 ## 当前验证
 
+- `2026-07-18` 需求输入跳转与 AI 澄清重构后运行 `npm --prefix frontend run test -- AnalysisView QuestionWizardView QuestionBatch ProjectHeader ProjectWorkspace projectRepository` 成功：6 个测试文件、56 项测试全部通过，覆盖 `router.replace` 自动进入 AI 澄清、输入页不展示问题列表、每轮最多 10 题、后台预生成下一轮、原始需求弹窗编辑、顶部仅显示需求完整度和刷新恢复状态。
+- `2026-07-18` 需求输入跳转与 AI 澄清重构后运行 `npm --prefix frontend run typecheck` 成功：`vue-tsc` 与 `tsc` 严格类型检查均通过。
+- `2026-07-18` 需求输入跳转与 AI 澄清重构后运行 `npm --prefix frontend run test` 成功：47 个测试文件、258 项测试全部通过。
+- `2026-07-18` 需求输入跳转与 AI 澄清重构后运行 `npm --prefix frontend run build` 成功：生产构建通过，仅保留 Vite 大 chunk 体积提示。
+- `2026-07-18` 需求输入跳转与 AI 澄清重构后运行 `.\mvnw.cmd test` 成功：后端 205 项测试全部通过。
 - `2026-07-18` 产品逻辑重构后运行 `npm --prefix frontend run test` 成功：47 个测试文件、252 项测试全部通过。
 - `2026-07-18` 产品逻辑重构后运行 `npm --prefix frontend run typecheck` 成功：`vue-tsc` 与 `tsc` 严格类型检查均通过。
 - `2026-07-18` 产品逻辑重构后运行 `npm --prefix frontend run build` 成功：生产构建通过，仅保留 Vite 大 chunk 体积提示。
@@ -193,6 +201,11 @@
 - `2026-07-18` 工作台三栏手动调宽完成：`AppShell` 的全局左栏和 `ProjectWorkspace` 的项目模块栏新增垂直拖拽手柄，宽度分别保存到 `localStorage`，主内容区自动占用剩余空间；`ProjectNavigation` 在窄栏下对模块名做省略显示，避免撑开布局。验证：`npm --prefix frontend run test -- AppShell ProjectWorkspace` 2 个测试文件、23 项通过，`npm --prefix frontend run typecheck` 通过。
 - `2026-07-18` 修复“补充想法让 AI 继续追问”误跳转项目概览：`QuestionWizardView` 在当前需求澄清页内展开补充输入区，补充为空禁用提交，生成中禁用重复提交，失败时保留补充内容；提交后复用 `/api/analysis/answers`，请求同时携带原始项目想法、已确认需求所在当前状态、历史问答和本轮补充想法，成功后在当前页展示下一轮问题。后端 `AnalysisAnswersRequest` 新增 `originalInput/supplementalInput`，`AnalysisContextBuilder` 改为向模型提供历史问答；`ProjectWorkspace` 顶部步骤不再因单轮问题结束就把需求澄清显示为已完成。验证：`npm --prefix frontend run test -- QuestionWizardView ProjectWorkspace` 2 个测试文件、22 项通过；`.\mvnw.cmd test "-Dtest=AnalysisContextBuilderTests,AnalysisControllerTests"` 5 项通过；`npm --prefix frontend run test` 47 个测试文件、247 项全部通过；`npm --prefix frontend run typecheck` 通过；`npm --prefix frontend run build` 通过，仅保留 Vite 大 chunk 体积提示；`.\mvnw.cmd test` 后端 204 项全部通过。
 - `2026-07-18` 修复“提交回答，让 AI 继续追问”在只回答部分问题时显示错误：`QuestionBatch` 普通提交现在只提交已回答或已单题跳过的问题，不再把未填写的问题一起传给 `ClarificationRepository.submitBatch()`；“跳过本轮”仍会把整轮问题全部标记跳过。验证：`npm --prefix frontend run test -- QuestionBatch QuestionWizardView` 2 个测试文件、6 项通过；`npm --prefix frontend run typecheck` 通过；`npm --prefix frontend run test` 47 个测试文件、248 项全部通过。
+- `2026-07-18` 修复 AI 澄清页单题提交导致等待过多的问题：`QuestionWizardView` 不再把当前问题批次截断为 1 条，`QuestionBatch` 会渲染本轮全部问题，要求每题已回答或已跳过后才允许“提交本轮回答”；“采用AI建议”会为本轮全部题目预填推荐选项，“跳过本轮”一次提交全部跳过，因此每轮只触发一次 AI 整理。验证：`npm --prefix frontend run test -- QuestionBatch QuestionWizardView` 2 个测试文件、8 项通过；`npm --prefix frontend run typecheck` 通过。
+- `2026-07-18` 修复跳到下一轮时被上一轮 AI 整理锁住的问题：`QuestionWizardView.submit()` 在本地保存本轮答案后会先检查是否还有待回答问题；若仍有下一批问题，则不调用 `/api/analysis/answers`，立即释放输入并允许用户继续答题。只有本地现有问题全部答完后，才统一请求 AI 整理回答并生成新问题，避免上一轮整理阻塞下一轮回答或覆盖用户正在填写的草稿。验证：`npm --prefix frontend run test -- QuestionWizardView QuestionBatch` 2 个测试文件、9 项通过；`npm --prefix frontend run typecheck` 通过。
+- `2026-07-18` 修复切换到下一轮后页面仍停在底部提交区的问题：`QuestionWizardView` 为当前批次顶部增加滚动锚点，并在批次问题 ID 变化后等待 DOM 更新再调用 `scrollIntoView({ block: 'start', behavior: 'smooth' })`，让下一轮自动定位到本轮开头和第一个问题附近。验证：`npm --prefix frontend run test -- QuestionWizardView QuestionBatch` 2 个测试文件、9 项通过；`npm --prefix frontend run typecheck` 通过。
+- `2026-07-18` 修复 AI 澄清长页面滚动体验：`AppShell` 和 `ProjectWorkspace` 改为 100vh 视口内布局，主画布独立滚动，项目二级导航和右侧辅助入口不再随问题列表滚出后留下中间空白。`QuestionBatch` 只保留底部粘性操作按钮，避免顶部和底部出现重复按钮。验证：`npm --prefix frontend run test -- QuestionBatch` 1 个测试文件、3 项通过；`npm --prefix frontend run typecheck` 通过。
+- `2026-07-18` 修复低完整度 PRD 草稿页问题：`QuestionWizardView` 在完整度不足 80% 或仍有核心冲突且没有待答问题时自动请求下一轮追问，不再展示“信息还不够完整，可以先生成PRD草稿”的中间页；`QuestionBatch` 低完整度时不显示生成 PRD 按钮；`ProjectWorkspace` 顶部生成入口同步要求 80% 且无核心冲突。`RequirementAnalyzer` 在模型返回空问题但完整度不足时会按 PRD 覆盖项生成兜底问题。验证：`npm --prefix frontend run test` 47 个测试文件、264 项通过；`npm --prefix frontend run typecheck` 通过；`npm --prefix frontend run build` 通过，仅保留 Vite 大 chunk 提示；`.\mvnw.cmd test` 后端 207 项通过；`git diff --check` 无空白错误。
 
 ## 下一步
 

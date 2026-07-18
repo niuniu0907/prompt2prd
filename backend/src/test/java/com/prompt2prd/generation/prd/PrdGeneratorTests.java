@@ -1,6 +1,13 @@
 package com.prompt2prd.generation.prd;
 
+import com.prompt2prd.analysis.domain.ClarificationAnswer;
+import com.prompt2prd.analysis.domain.ClarificationOption;
+import com.prompt2prd.analysis.domain.ClarificationQuestion;
 import com.prompt2prd.analysis.domain.RequirementItem;
+import com.prompt2prd.analysis.domain.QuestionInputType;
+import com.prompt2prd.analysis.domain.QuestionStatus;
+import com.prompt2prd.analysis.domain.RequirementDimension;
+import com.prompt2prd.analysis.domain.RequirementState;
 import com.prompt2prd.analysis.domain.RequirementStatus;
 import com.prompt2prd.analysis.domain.RequirementType;
 import com.prompt2prd.model.application.ModelCallContext;
@@ -66,6 +73,50 @@ class PrdGeneratorTests {
         assertThat(gateway.lastRequest.messages().toString())
                 .contains("secret-pending-content", "待确认：未确认退款", "MUST NOT");
         assertThat(state.requirements()).containsExactlyElementsOf(before);
+    }
+
+    @Test
+    void savedClarificationAnswersEnterPrdPromptAsDraftEvidence() {
+        UUID questionId = UUID.fromString("20000000-0000-4000-8000-000000000001");
+        UUID batchId = UUID.fromString("20000000-0000-4000-8000-000000000002");
+        UUID optionId = UUID.fromString("20000000-0000-4000-8000-000000000003");
+        ClarificationQuestion question = new ClarificationQuestion(
+                questionId,
+                PrdTestFixtures.PROJECT_ID,
+                batchId,
+                "平台是否需要在线支付？",
+                "影响订单和退款规则",
+                RequirementDimension.BUSINESS_RULES,
+                "payment.enabled",
+                "payment-enabled",
+                QuestionInputType.SINGLE_SELECT,
+                List.of(new ClarificationOption(optionId, "需要在线支付", "需要支付流程", true)),
+                5,
+                QuestionStatus.ANSWERED,
+                PrdTestFixtures.NOW,
+                PrdTestFixtures.NOW);
+        ClarificationAnswer answer = new ClarificationAnswer(
+                UUID.fromString("20000000-0000-4000-8000-000000000004"),
+                PrdTestFixtures.PROJECT_ID,
+                questionId,
+                List.of(optionId),
+                "先支持微信支付",
+                "MVP 只做一种支付",
+                false,
+                PrdTestFixtures.NOW,
+                PrdTestFixtures.NOW);
+        RequirementState source = PrdTestFixtures.state(40, false, false, List.of());
+        RequirementState state = new RequirementState(
+                source.project(), source.requirements(), List.of(question), List.of(answer),
+                source.conflicts(), source.completeness());
+        CapturingGateway gateway = new CapturingGateway();
+        PrdGenerator generator = new PrdGenerator(gateway);
+        PrdGenerationPlan plan = generator.plan(state, List.of(), "business-rules");
+        generator.streamSection(context(), plan.sections().getFirst()).collectList().block();
+
+        assertThat(gateway.lastRequest.messages().toString())
+                .contains("Saved clarification answers=")
+                .contains("平台是否需要在线支付？ -> 需要在线支付；先支持微信支付；备注：MVP 只做一种支付");
     }
 
     @Test

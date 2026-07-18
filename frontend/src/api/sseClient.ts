@@ -107,7 +107,7 @@ export async function consumePostSse(options: PostSseOptions): Promise<unknown> 
       terminalReceived = true
       const code = String(event.data.errorCode)
       throw new AnalysisStreamError(
-        analysisFailureMessage(code),
+        generationFailureMessage(code),
         code,
         Boolean(event.data.retryable),
       )
@@ -167,7 +167,7 @@ async function readHttpError(response: Response): Promise<{ code: string; messag
   }
 }
 
-function analysisFailureMessage(code: string): string {
+export function generationFailureMessage(code: string): string {
   const messages: Record<string, string> = {
     INVALID_CONFIGURATION: '模型配置无效，请先检查服务商、Base URL、模型名称和 Key 来源。',
     MODEL_UNREACHABLE: '无法连接到当前模型服务，请检查 Base URL、网络或本地模型服务是否启动。',
@@ -178,6 +178,8 @@ function analysisFailureMessage(code: string): string {
     MODEL_TIMEOUT: '模型生成超时，请稍后重试，或减少输入内容后重新生成。',
     MODEL_CANCELLED: '本次生成已停止。',
     MODEL_INTERNAL_ERROR: '模型服务内部错误，请稍后重试或切换模型服务。',
+    TIMEOUT: '模型生成超时，请稍后重试，或减少输入内容后重新生成。',
+    SAVE_FAILED: '章节内容生成成功但保存到浏览器本地失败，请检查浏览器存储空间或刷新后重试。',
     ANALYSIS_OUTPUT_INVALID: '模型返回的需求分析结果不完整，系统没有保存这次结果，请重试或切换模型。',
     ANALYSIS_FAILED: 'AI 初始需求分析失败，问题向导还不能开始。请检查模型设置后重新分析。',
     PRD_GENERATION_FAILED: 'PRD 生成失败，已保存内容未改变。请检查模型设置后重试。',

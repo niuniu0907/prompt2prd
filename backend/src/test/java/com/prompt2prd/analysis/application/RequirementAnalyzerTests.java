@@ -52,6 +52,22 @@ class RequirementAnalyzerTests {
     }
 
     @Test
+    void addsFallbackQuestionsWhenModelReturnsNoneButInformationIsIncomplete() {
+        RequirementState initial = emptyState();
+        RequirementAnalyzer analyzer = new RequirementAnalyzer(new StubGateway(validOutput(List.of())));
+
+        RequirementAnalyzer.AnalysisResult result = analyzer.analyze(command(initial)).block();
+
+        assertThat(result).isNotNull();
+        assertThat(result.selectedQuestions()).hasSize(5);
+        assertThat(result.selectedQuestions()).allSatisfy(question -> {
+            assertThat(question.status().name()).isEqualTo("PENDING");
+            assertThat(question.options()).hasSize(2);
+            assertThat(question.text()).contains("下一步");
+        });
+    }
+
+    @Test
     void missingRequiredModelFieldIsRetryableAndInputStateIsUnchanged() {
         RequirementState initial = emptyState();
         AnalysisModelOutput invalid = new AnalysisModelOutput(

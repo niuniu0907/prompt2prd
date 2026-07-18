@@ -40,7 +40,7 @@ const props = defineProps<{
 }>()
 
 const route = inject(routeLocationKey, null)
-const router = useRouter()
+const router = useRouter() as ReturnType<typeof useRouter> | undefined
 const modelConfig = useModelConfigStore()
 const client = props.client ?? createAnalysisClient()
 const stateStore = props.store ?? analysisStateRepository
@@ -71,9 +71,11 @@ const nextAction = computed(() => {
 const needsModelSetup = computed(() => {
   return isModelSetupErrorMessage(errorMessage.value)
 })
+const hasCurrentAnalysis = computed(() => Boolean(currentProject.value)
+  && (formalRequirements.value.length > 0 || questions.value.length > 0))
 
 function goToModelSettings() {
-  void router.push({ name: 'model-settings' })
+  void router?.push({ name: 'model-settings' })
 }
 
 function goToNextAction() {
@@ -82,7 +84,7 @@ function goToNextAction() {
     return
   }
   const projectId = currentProject.value?.id ?? String(route?.params.projectId ?? '')
-  void router.push({ name: nextAction.value.target, params: { projectId } })
+  void router?.push({ name: nextAction.value.target, params: { projectId } })
 }
 
 onMounted(async () => {
@@ -125,7 +127,7 @@ async function startAnalysis() {
 
   analyzing.value = true
   errorMessage.value = ''
-  progress.value = Math.max(progress.value, 5)
+  progress.value = 5
   progressMessage.value = '正在连接分析服务'
   try {
     const finalState = await client.analyze({
@@ -138,7 +140,8 @@ async function startAnalysis() {
     applyState(saved)
     notifyAnalysisStateSaved(project.id)
     progress.value = 100
-    progressMessage.value = '初始分析已完成并保存'
+    progressMessage.value = '原始需求解析完成'
+    replaceToClarification(project.id)
   } catch (error) {
     errorMessage.value = readableError(error)
     progressMessage.value = '分析暂时中断，已保留上次有效状态'
@@ -156,7 +159,7 @@ function handleEvent(event: KnownStreamEvent) {
     progress.value = Math.max(progress.value, 10)
     progressMessage.value = '开始理解项目目标'
   } else if (event.type === 'analysis_progress') {
-    progress.value = Number(event.data.progress)
+    progress.value = nextProgress(Number(event.data.progress))
     progressMessage.value = String(event.data.message)
   } else if (event.type === 'requirement_patch') {
     const item = event.data.value as RequirementItem
@@ -170,13 +173,23 @@ function handleEvent(event: KnownStreamEvent) {
   }
 }
 
+function nextProgress(value: number) {
+  if (!Number.isFinite(value)) return progress.value
+  const normalized = Math.max(0, Math.min(99, Math.round(value)))
+  return Math.max(progress.value, normalized)
+}
+
 function applyState(state: AnalysisState) {
   currentProject.value = state.project
   requirements.value = [...state.requirements]
   questions.value = [...state.questions]
   completeness.value = state.completeness
-  progress.value = state.completeness.total
-  progressMessage.value = hasAnalysisContent(state) ? '已恢复最近一次有效分析' : '准备分析项目输入'
+  progress.value = hasAnalysisContent(state) ? 100 : 0
+  progressMessage.value = hasAnalysisContent(state) ? '原始需求解析完成' : '准备分析项目输入'
+}
+
+function replaceToClarification(projectId: string) {
+  void router?.replace({ name: 'project-questions', params: { projectId } })
 }
 
 function serverState(project: Project) {
@@ -252,7 +265,16 @@ function readableError(error: unknown) {
         </button>
       </header>
 
-      <AnalysisProgress :progress="progress" :message="progressMessage" :active="analyzing" />
+      <AnalysisProgress
+        v-if="analyzing"
+        :progress="progress"
+        :message="progressMessage"
+        :active="analyzing"
+      />
+      <section v-else-if="hasCurrentAnalysis" class="analysis-view__complete" role="status">
+        <span>原始需求解析完成</span>
+        <button type="button" class="button-primary" @click="goToNextAction">进入AI澄清</button>
+      </section>
 
       <section v-if="requirements.length || pendingQuestions.length" class="overview-board" aria-label="当前需求状态">
         <article>
@@ -281,13 +303,6 @@ function readableError(error: unknown) {
 
       <RequirementSummary :requirements="formalRequirements" />
 
-      <section v-if="pendingQuestions.length" class="question-preview">
-        <header><div><span>第一轮澄清</span><h2>还需要你确认 {{ pendingQuestions.length }} 个问题</h2></div><small>下一步将在需求澄清中集中回答</small></header>
-        <article v-for="question in pendingQuestions" :key="question.id">
-          <div><strong>{{ question.text }}</strong><p>{{ question.reason }}</p></div>
-          <footer><span>AI 提问</span><span>待回答</span></footer>
-        </article>
-      </section>
     </template>
   </main>
 </template>
@@ -299,6 +314,8 @@ function readableError(error: unknown) {
 .analysis-view__header span,.question-preview header span { color: var(--color-accent); font-size: 10px; font-weight: 750; letter-spacing: .08em; }
 .analysis-view__header h1 { margin: 5px 0 0; font-size: 22px; }
 .analysis-view__header .button-primary { min-height: 38px; padding: 0 15px; border-radius: 8px; font-size: 12px; }
+.analysis-view__complete { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 12px; border: 1px solid #c8e9e4; border-radius: 9px; color: #28635b; background: #f4fbfa; font-size: 12px; }
+.analysis-view__complete .button-primary { min-height: 32px; padding: 0 12px; border-radius: 8px; font-size: 11px; }
 .analysis-view__error { display: grid; gap: 8px; padding: 13px 15px; border: 1px solid #e2bcbc; border-radius: 11px; color: #873f3f; background: #fff8f8; }
 .analysis-view__error span { color: var(--color-text-secondary); font-size: 11px; }
 .analysis-view__error .button-primary { justify-self: start; margin-top: 2px; }
@@ -308,13 +325,4 @@ function readableError(error: unknown) {
 .overview-board strong { color: var(--color-text-primary); font-size: 16px; }
 .overview-board__blocked { border-color: #e2bcbc; background: #fff8f8; }
 .overview-board__blocked strong { color: #873f3f; }
-.question-preview { display: grid; gap: 10px; padding-top: 4px; }
-.question-preview > header { display: flex; align-items: end; justify-content: space-between; gap: 20px; }
-.question-preview h2 { margin: 4px 0 0; font-size: 14px; }
-.question-preview small { color: var(--color-text-muted); font-size: 10px; }
-.question-preview article { display: flex; align-items: center; justify-content: space-between; gap: 20px; padding: 14px 16px; border: 1px solid var(--color-border); border-radius: 11px; background: var(--color-surface); }
-.question-preview article strong { font-size: 12px; }
-.question-preview article p { margin: 5px 0 0; color: var(--color-text-secondary); font-size: 10px; }
-.question-preview footer { display: flex; gap: 5px; flex-shrink: 0; }
-.question-preview footer span { padding: 3px 7px; border-radius: 999px; color: var(--color-text-secondary); font-size: 9px; background: var(--color-surface-muted); }
 </style>

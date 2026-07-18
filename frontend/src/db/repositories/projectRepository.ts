@@ -51,6 +51,10 @@ export interface ProjectLookupRepository {
   getById(projectId: string): Promise<Project | undefined>
 }
 
+export interface ProjectSourceRepository {
+  updateOriginalPrompt(projectId: string, originalPrompt: string, now?: string): Promise<Project>
+}
+
 export class ProjectNotFoundError extends Error {
   constructor(projectId: string) {
     super(`Project ${projectId} was not found`)
@@ -81,7 +85,7 @@ interface CopyMaps {
 }
 
 export class ProjectRepository
-  implements ProjectHomeRepository, ProjectCreateRepository, ProjectLookupRepository
+  implements ProjectHomeRepository, ProjectCreateRepository, ProjectLookupRepository, ProjectSourceRepository
 {
   constructor(
     private readonly database: AppDatabase = appDatabase,
@@ -166,6 +170,23 @@ export class ProjectRepository
       ...project,
       name: trimmedName,
       userRenamed: true,
+      updatedAt: now,
+    }))
+  }
+
+  async updateOriginalPrompt(
+    projectId: string,
+    originalPrompt: string,
+    now = new Date().toISOString(),
+  ): Promise<Project> {
+    const normalizedPrompt = originalPrompt.trim()
+    if (Array.from(normalizedPrompt).length < 5) {
+      throw new TypeError('original prompt must contain at least 5 Unicode characters')
+    }
+
+    return this.updateProject(projectId, now, (project) => ({
+      ...project,
+      originalPrompt,
       updatedAt: now,
     }))
   }

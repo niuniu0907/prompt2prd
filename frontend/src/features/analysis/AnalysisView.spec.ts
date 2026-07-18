@@ -1,11 +1,13 @@
 import { flushPromises, mount } from '@vue/test-utils'
 import { createPinia } from 'pinia'
 import { describe, expect, it, vi } from 'vitest'
+import { createMemoryHistory } from 'vue-router'
 
 import type { AnalysisCallbacks, AnalysisRequestBody } from '@/api/analysisApi'
 import type { AnalysisState, AnalysisStateStore } from '@/db/repositories/analysisStateRepository'
 import type { Project } from '@/features/projects/types'
 import type { ClarificationQuestion, RequirementItem } from '@/features/requirements/types'
+import { createAppRouter } from '@/router'
 import AnalysisView from './AnalysisView.vue'
 
 const project: Project = {
@@ -58,12 +60,74 @@ describe('AnalysisView', () => {
 
     expect(wrapper.text()).toContain('35%')
     expect(wrapper.text()).toContain('为宠物主人提供寄养服务')
-    expect(wrapper.text()).toContain('寄养方支持哪些角色？')
+    expect(wrapper.text()).not.toContain('寄养方支持哪些角色？')
     expect(store.saveFinal).not.toHaveBeenCalled()
 
     finish(finalState())
     await flushPromises()
     expect(store.saveFinal).toHaveBeenCalledTimes(1)
+  })
+
+  it('replaces the route with AI clarification after initial analysis is saved', async () => {
+    const history = createMemoryHistory()
+    const router = createAppRouter(history)
+    await router.push(`/projects/${project.id}/overview`)
+    await router.isReady()
+    const client = {
+      analyze: vi.fn(async () => finalState()),
+      submitAnswers: vi.fn(),
+      cancel: vi.fn(),
+    }
+    const store: AnalysisStateStore = {
+      load: vi.fn(async () => undefined),
+      saveFinal: vi.fn(async (_id, state) => state as AnalysisState),
+    }
+
+    mount(AnalysisView, {
+      props: { project, client, store, modelSettings: { keySource: 'SYSTEM', model: 'test-model' } },
+      global: { plugins: [createPinia(), router] },
+    })
+    await flushPromises()
+
+    expect(router.currentRoute.value.name).toBe('project-questions')
+    expect(router.currentRoute.value.params.projectId).toBe(project.id)
+  })
+
+  it('keeps streamed progress monotonic when slower heartbeat events arrive late', async () => {
+    let callbacks!: AnalysisCallbacks
+    const client = {
+      analyze: vi.fn((_body: AnalysisRequestBody, next: AnalysisCallbacks) => {
+        callbacks = next
+        return new Promise<AnalysisState>(() => {})
+      }),
+      submitAnswers: vi.fn(),
+      cancel: vi.fn(),
+    }
+    const store: AnalysisStateStore = {
+      load: vi.fn(async () => undefined),
+      saveFinal: vi.fn(),
+    }
+    const wrapper = mount(AnalysisView, {
+      props: {
+        project,
+        client,
+        store,
+        architectureSelected: vi.fn(async () => null),
+        modelSettings: { keySource: 'SYSTEM', model: 'test-model' },
+      },
+      global: { plugins: [createPinia()] },
+    })
+    await flushPromises()
+
+    callbacks.onEvent?.(event(1, 'analysis_progress', { progress: 45, message: '已提取核心目标' }))
+    await flushPromises()
+    expect(wrapper.text()).toContain('45%')
+
+    callbacks.onEvent?.(event(2, 'analysis_progress', { progress: 20, message: 'AI 正在分析，已等待 5 秒' }))
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('45%')
+    expect(wrapper.text()).toContain('AI 正在分析，已等待 5 秒')
   })
 
   it('restores the last valid state without starting a new initial analysis', async () => {
@@ -80,7 +144,7 @@ describe('AnalysisView', () => {
     await flushPromises()
 
     expect(wrapper.text()).toContain('为宠物主人提供寄养服务')
-    expect(wrapper.text()).toContain('寄养方支持哪些角色？')
+    expect(wrapper.text()).not.toContain('寄养方支持哪些角色？')
     expect(client.analyze).not.toHaveBeenCalled()
   })
 

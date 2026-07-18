@@ -60,7 +60,13 @@ class AnalysisOrchestratorTests {
         StepVerifier.withVirtualTime(() -> orchestrator.analyze(execution(initial)))
                 .expectNextCount(2)
                 .thenAwait(Duration.ofSeconds(5))
-                .assertNext(event -> assertThat(event.data().get("message")).isEqualTo("分析仍在进行"))
+                .assertNext(event -> assertThat(event.data())
+                        .containsEntry("progress", 20)
+                        .containsEntry("message", "AI 正在分析，已等待 5 秒"))
+                .thenAwait(Duration.ofSeconds(5))
+                .assertNext(event -> assertThat(event.data())
+                        .containsEntry("progress", 25)
+                        .containsEntry("message", "AI 正在分析，已等待 10 秒"))
                 .thenCancel()
                 .verify();
     }

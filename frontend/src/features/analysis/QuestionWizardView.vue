@@ -1,10 +1,14 @@
 <script setup lang="ts">
-import { computed, inject, onBeforeUnmount, onMounted, ref } from 'vue'
+import { computed, inject, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { routeLocationKey, useRouter } from 'vue-router'
 import { createAnalysisClient, type AnalysisAnswersRequestBody, type AnalysisCallbacks } from '@/api/analysisApi'
 import { isModelSetupErrorMessage, validateAnalysisModelSettings } from '@/api/modelSettingsValidation'
 import { analysisStateRepository, type AnalysisState, type AnalysisStateStore } from '@/db/repositories/analysisStateRepository'
-import { clarificationRepository, type ClarificationSubmitter } from '@/db/repositories/clarificationRepository'
+import { clarificationRepository, type ClarificationSubmitter, type SubmitBatchResult } from '@/db/repositories/clarificationRepository'
+import {
+  projectRepository,
+  type ProjectSourceRepository,
+} from '@/db/repositories/projectRepository'
 import type { ClarificationAnswer, ClarificationQuestion } from '@/features/requirements/types'
 import { useModelConfigStore } from '@/stores/modelConfigStore'
 import QuestionBatch from './QuestionBatch.vue'
@@ -23,12 +27,14 @@ const props = defineProps<{
   architectureSelected?: (projectId: string) => Promise<unknown>
   client?: AnswerAnalysisRunner
   modelSettings?: unknown
+  sourceRepository?: ProjectSourceRepository
 }>()
 const route = inject(routeLocationKey, null)
-const router = useRouter()
+const router = useRouter() as ReturnType<typeof useRouter> | undefined
 const projectId = computed(() => props.projectId ?? String(route?.params.projectId ?? ''))
 const stateStore = props.stateStore ?? analysisStateRepository
 const clarification = props.clarification ?? clarificationRepository
+const sourceRepository = props.sourceRepository ?? projectRepository
 const client = props.client ?? createAnalysisClient()
 const modelConfig = useModelConfigStore()
 const state = ref<AnalysisState | null>(null)
@@ -38,21 +44,77 @@ const errorMessage = ref('')
 const completedMessage = ref('')
 const supplementOpen = ref(false)
 const supplementalIdea = ref('')
+const currentBatchAnchor = ref<HTMLElement | null>(null)
+const followUpBusy = ref(false)
+const automaticFollowUpAttempted = ref(false)
+const sourceEditorOpen = ref(false)
+const originalPromptDraft = ref('')
+const sourceSaving = ref(false)
+const sourceError = ref('')
 
 const pendingQuestions = computed(() => state.value?.questions.filter(question => question.status === 'PENDING') ?? [])
 const currentBatch = computed(() => {
-  const first = [...pendingQuestions.value].sort((a, b) => b.priority - a.priority)[0]
-  return first ? pendingQuestions.value.filter(question => question.batchId === first.batchId).slice(0, 1) : []
+  const first = [...pendingQuestions.value]
+    .sort((a, b) => a.createdAt.localeCompare(b.createdAt) || b.priority - a.priority)[0]
+  return first
+    ? pendingQuestions.value
+        .filter(question => question.batchId === first.batchId)
+        .sort((a, b) => b.priority - a.priority)
+        .slice(0, 10)
+    : []
 })
 const currentCoverageKeys = computed(() => activeCoverageKeys(currentBatch.value))
+const currentBatchKey = computed(() => currentBatch.value.map(question => question.id).join('|'))
 const originalPromptExcerpt = computed(() => {
   const text = state.value?.project.originalPrompt?.trim()
   if (!text) return ''
   return text.length > 120 ? `${text.slice(0, 120)}...` : text
 })
-const canSubmitSupplement = computed(() => Boolean(supplementalIdea.value.trim()) && !busy.value)
-const canRetrySavedAnswers = computed(() => Boolean(state.value?.answers.length) && !busy.value)
+const canSubmitSupplement = computed(() => Boolean(supplementalIdea.value.trim()) && !busy.value && !followUpBusy.value)
+const canRetrySavedAnswers = computed(() => Boolean(state.value?.answers.length) && !busy.value && !followUpBusy.value)
 const needsModelSetup = computed(() => isModelSetupErrorMessage(errorMessage.value))
+const sufficientCompletenessThreshold = 80
+const canGeneratePrd = computed(() => {
+  const completeness = state.value?.completeness
+  if (!completeness) return false
+  return completeness.total >= sufficientCompletenessThreshold
+    && !completeness.hasCoreConflict
+})
+const needsMoreClarification = computed(() => Boolean(state.value) && !canGeneratePrd.value)
+const completionTitle = computed(() => {
+  if (canGeneratePrd.value) {
+    return '关键信息已达到生成条件，可以生成PRD'
+  }
+  return '还需要继续澄清关键需求'
+})
+const completionDescription = computed(() => {
+  const total = state.value?.completeness.total ?? 0
+  if (canGeneratePrd.value) {
+    return '你也可以继续补充细节。生成 PRD 不代表项目结束，后续仍可回来回答问题或修改需求结果。'
+  }
+  if (state.value?.completeness.hasCoreConflict) {
+    return `当前完整度为 ${total}%，并且仍有核心冲突需要处理。请先处理冲突或继续补充需求，系统不会在这里直接生成 PRD。`
+  }
+  return `当前完整度为 ${total}%，系统会继续生成下一轮问题来补齐关键需求。`
+})
+const followUpStatusMessage = computed(() => currentBatch.value.length
+  ? 'AI 正在后台整理上一轮回答并生成后续问题，你可以继续填写当前轮。'
+  : 'AI 正在生成下一轮问题，生成完成后会直接显示在当前页面。')
+
+watch(
+  [loading, currentBatchKey, followUpBusy, busy, needsMoreClarification],
+  () => { void continueClarificationAutomatically() },
+  { flush: 'post' },
+)
+
+async function continueClarificationAutomatically() {
+  if (loading.value || busy.value || followUpBusy.value) return
+  if (errorMessage.value) return
+  if (!state.value || currentBatch.value.length || !needsMoreClarification.value) return
+  if (automaticFollowUpAttempted.value) return
+  automaticFollowUpAttempted.value = true
+  await requestNextRound('AI 已生成下一轮追问。', 'AI 暂时没有生成新的追问，你可以补充想法后继续。')
+}
 
 onMounted(async () => {
   try {
@@ -60,9 +122,19 @@ onMounted(async () => {
     state.value = loadedState ?? null
   }
   catch (error) { errorMessage.value = readableError(error) }
-  finally { loading.value = false }
+  finally {
+    loading.value = false
+    await nextTick()
+    void continueClarificationAutomatically()
+  }
 })
 onBeforeUnmount(() => client.cancel())
+
+watch(currentBatchKey, async (value, oldValue) => {
+  if (!value || !oldValue || value === oldValue) return
+  await nextTick()
+  currentBatchAnchor.value?.scrollIntoView?.({ block: 'start', behavior: 'smooth' })
+}, { flush: 'post' })
 
 async function submit(drafts: QuestionAnswerDraft[]) {
   if (!state.value || busy.value) return
@@ -82,9 +154,43 @@ async function submit(drafts: QuestionAnswerDraft[]) {
     for (const answer of persisted.answers) answerMap.set(answer.questionId, answer)
     const localState: AnalysisState = { ...state.value, questions: [...questionMap.values()], answers: [...answerMap.values()] }
     state.value = localState
+    if (hasPendingQuestions(localState)) {
+      completedMessage.value = '本轮回答已保存，已切换到下一轮；AI 正在后台整理本轮回答。'
+      void prefetchFollowUp(localState, settings)
+      return
+    }
+    if (followUpBusy.value) {
+      completedMessage.value = '本轮回答已保存，AI 正在生成下一轮问题。'
+      return
+    }
     await requestFollowUp(localState, settings, undefined, 'AI 已根据回答更新需求，并生成下一轮追问。', 'AI 已根据回答更新需求，当前没有新的追问。')
   } catch (error) { errorMessage.value = readableError(error) }
   finally { busy.value = false }
+}
+
+async function prefetchFollowUp(sourceState: AnalysisState, settings: unknown) {
+  if (followUpBusy.value) return
+  followUpBusy.value = true
+  try {
+    const finalState = await client.submitAnswers({
+      state: toServerState(sourceState),
+      answers: toAnswerTurns(sourceState.questions, sourceState.answers),
+      originalInput: originalProjectInput(sourceState),
+      missingInformation: sourceState.requirements.filter(item => item.type === 'MISSING_INFORMATION').map(item => item.content),
+      modelSettings: settings,
+    })
+    const latest = state.value ?? sourceState
+    const merged = mergeFollowUpState(latest, finalState as AnalysisState)
+    state.value = await stateStore.saveFinal(projectId.value, merged)
+    notifyAnalysisStateSaved()
+    completedMessage.value = currentBatch.value.length
+      ? 'AI 已生成后续问题，当前页会继续显示下一轮。'
+      : 'AI 已更新需求，当前没有新的追问。'
+  } catch (error) {
+    errorMessage.value = `下一轮问题生成失败：${readableError(error)}`
+  } finally {
+    followUpBusy.value = false
+  }
 }
 
 async function submitSupplement() {
@@ -103,6 +209,7 @@ async function submitSupplement() {
   }
   busy.value = true; errorMessage.value = ''; completedMessage.value = ''
   try {
+    automaticFollowUpAttempted.value = false
     await requestFollowUp(state.value, settings, supplementalInput, 'AI 已根据补充想法生成下一轮追问。', 'AI 已根据补充想法更新需求，当前没有新的追问。')
     supplementalIdea.value = ''
     supplementOpen.value = false
@@ -111,7 +218,7 @@ async function submitSupplement() {
 }
 
 async function retrySavedAnswers() {
-  if (!state.value || busy.value) return
+  if (!state.value || busy.value || followUpBusy.value) return
   const settings = props.modelSettings ?? requestModelSettings()
   const validation = validateAnalysisModelSettings(settings)
   if (validation) {
@@ -124,6 +231,34 @@ async function retrySavedAnswers() {
     await requestFollowUp(state.value, settings, undefined, 'AI 已重新处理保存的回答，并生成下一轮追问。', 'AI 已重新处理保存的回答，当前没有新的追问。')
   } catch (error) { errorMessage.value = readableError(error) }
   finally { busy.value = false }
+}
+
+function openOriginalEditor() {
+  if (!state.value) return
+  originalPromptDraft.value = state.value.project.originalPrompt
+  sourceError.value = ''
+  sourceEditorOpen.value = true
+}
+
+async function saveOriginalPrompt() {
+  if (!state.value || sourceSaving.value) return
+  if (Array.from(originalPromptDraft.value.trim()).length < 5) {
+    sourceError.value = '原始需求至少需要 5 个字符。'
+    return
+  }
+  sourceSaving.value = true
+  sourceError.value = ''
+  try {
+    const updatedProject = await sourceRepository.updateOriginalPrompt(projectId.value, originalPromptDraft.value)
+    state.value = { ...state.value, project: { ...state.value.project, ...updatedProject } }
+    notifyAnalysisStateSaved()
+    sourceEditorOpen.value = false
+    completedMessage.value = '原始需求已更新。后续追问会使用新的原始需求。'
+  } catch (error) {
+    sourceError.value = readableError(error)
+  } finally {
+    sourceSaving.value = false
+  }
 }
 
 async function requestFollowUp(
@@ -144,6 +279,54 @@ async function requestFollowUp(
   state.value = await stateStore.saveFinal(projectId.value, finalState)
   notifyAnalysisStateSaved()
   completedMessage.value = currentBatch.value.length ? nextRoundMessage : noQuestionMessage
+}
+
+async function requestNextRound(nextRoundMessage: string, noQuestionMessage: string) {
+  if (!state.value || busy.value || followUpBusy.value) return
+  const settings = props.modelSettings ?? requestModelSettings()
+  const validation = validateAnalysisModelSettings(settings)
+  if (validation) {
+    errorMessage.value = validation
+    completedMessage.value = ''
+    return
+  }
+  followUpBusy.value = true
+  errorMessage.value = ''
+  completedMessage.value = ''
+  try {
+    await requestFollowUp(state.value, settings, undefined, nextRoundMessage, noQuestionMessage)
+  } catch (error) {
+    errorMessage.value = `下一轮问题生成失败：${readableError(error)}`
+  } finally {
+    followUpBusy.value = false
+  }
+}
+
+function mergeFollowUpState(latest: AnalysisState, incoming: AnalysisState): AnalysisState {
+  const questionMap = new Map(incoming.questions.map(question => [question.id, question]))
+  for (const question of latest.questions) questionMap.set(question.id, question)
+  const answerMap = new Map(incoming.answers.map(answer => [answer.questionId, answer]))
+  for (const answer of latest.answers) answerMap.set(answer.questionId, answer)
+  return {
+    ...incoming,
+    project: {
+      ...latest.project,
+      name: incoming.project.name,
+      language: incoming.project.language,
+      stage: incoming.project.stage,
+      completeness: incoming.completeness.total,
+    },
+    questions: [...questionMap.values()],
+    answers: [...answerMap.values()],
+  }
+}
+
+function mergePersistedAnswers(source: AnalysisState, persisted: SubmitBatchResult): AnalysisState {
+  const questionMap = new Map(source.questions.map(question => [question.id, question]))
+  for (const question of persisted.questions) questionMap.set(question.id, question)
+  const answerMap = new Map(source.answers.map(answer => [answer.questionId, answer]))
+  for (const answer of persisted.answers) answerMap.set(answer.questionId, answer)
+  return { ...source, questions: [...questionMap.values()], answers: [...answerMap.values()] }
 }
 
 function toAnswerTurns(questions: ClarificationQuestion[], answers: ClarificationAnswer[]) {
@@ -168,20 +351,65 @@ function originalProjectInput(value: AnalysisState) {
 }
 function requestModelSettings() { return { ...modelConfig.requestKeyConfig, provider: modelConfig.provider, baseUrl: modelConfig.baseUrl || undefined, model: modelConfig.model, parameters: { temperature: modelConfig.temperature } } }
 function readableError(error: unknown) { return error instanceof Error ? error.message : '提交失败，已保留本地回答。' }
+function hasPendingQuestions(value: AnalysisState) {
+  return value.questions.some(question => question.status === 'PENDING')
+}
 function notifyAnalysisStateSaved() {
   window.dispatchEvent(new CustomEvent('prompt2prd:analysis-state-saved', { detail: { projectId: projectId.value } }))
 }
 
 function goToRequirements() {
-  void router.push({ name: 'project-requirements', params: { projectId: projectId.value } })
+  void router?.push({ name: 'project-requirements', params: { projectId: projectId.value } })
 }
 
 function goToPrd() {
-  void router.push({ name: 'project-prd', params: { projectId: projectId.value } })
+  void router?.push({ name: 'project-prd', params: { projectId: projectId.value } })
+}
+
+async function generatePrdFromCurrentAnswers(drafts: QuestionAnswerDraft[]) {
+  if (!canGeneratePrd.value) {
+    errorMessage.value = '当前信息还不够完整，请先继续回答下一轮问题。'
+    completedMessage.value = ''
+    return
+  }
+  if (!drafts.length) {
+    goToPrd()
+    return
+  }
+  if (!state.value || busy.value) return
+  const settings = props.modelSettings ?? requestModelSettings()
+  const validation = validateAnalysisModelSettings(settings)
+  if (validation) {
+    errorMessage.value = validation
+    completedMessage.value = ''
+    return
+  }
+  busy.value = true; errorMessage.value = ''; completedMessage.value = ''
+  try {
+    const persisted = await clarification.submitBatch(projectId.value, drafts)
+    const localState = mergePersistedAnswers(state.value, persisted)
+    state.value = localState
+    try {
+      await requestFollowUp(
+        localState,
+        settings,
+        undefined,
+        'AI 已根据回答更新需求，正在进入 PRD。',
+        'AI 已根据回答更新需求，正在进入 PRD。',
+      )
+    } catch (error) {
+      errorMessage.value = `本轮回答已保存，但 AI 整理失败：${readableError(error)}`
+    }
+    goToPrd()
+  } catch (error) {
+    errorMessage.value = readableError(error)
+  } finally {
+    busy.value = false
+  }
 }
 
 function goToModelSettings() {
-  void router.push({ name: 'model-settings' })
+  void router?.push({ name: 'model-settings' })
 }
 </script>
 
@@ -198,11 +426,13 @@ function goToModelSettings() {
         <button v-if="needsModelSetup" type="button" class="button-primary" @click="goToModelSettings">前往模型设置</button>
       </div>
       <div v-if="completedMessage" class="wizard-view__success">{{ completedMessage }}</div>
-      <section v-if="currentBatch.length" class="wizard-view__intro">
+      <div v-if="followUpBusy" class="wizard-view__notice" role="status">{{ followUpStatusMessage }}</div>
+      <section v-if="currentBatch.length" ref="currentBatchAnchor" class="wizard-view__intro">
         <div>
           <span>AI 需求访谈</span>
-          <h1>先回答当前最重要的问题</h1>
-          <p>AI 已读取你的初始需求，并会一次只追问一个主要缺口。提交后，页面会停留在 AI 澄清并加载下一条问题。</p>
+          <h1>集中回答本轮关键问题</h1>
+          <p>AI 已读取你的初始需求，并把当前最值得确认的问题放在同一轮。每轮最多 10 题，提交后页面会切到下一轮。</p>
+          <button type="button" class="wizard-view__link-button" @click="openOriginalEditor">编辑原始需求</button>
         </div>
         <p v-if="originalPromptExcerpt" class="wizard-view__source">初始想法：{{ originalPromptExcerpt }}</p>
         <div class="wizard-view__coverage" aria-label="PRD 覆盖清单">
@@ -218,16 +448,32 @@ function goToModelSettings() {
           </ul>
         </div>
       </section>
-      <QuestionBatch v-if="currentBatch.length" :questions="currentBatch" :busy="busy" @submit="submit" @generate-prd="goToPrd" />
+      <QuestionBatch
+        v-if="currentBatch.length"
+        :questions="currentBatch"
+        :busy="busy"
+        :can-generate-prd="canGeneratePrd"
+        @submit="submit"
+        @generate-prd="generatePrdFromCurrentAnswers"
+      />
+      <section v-else-if="followUpBusy" class="wizard-view__empty">
+        <span>AI 需求访谈</span>
+        <h1>AI 正在生成下一轮问题</h1>
+        <p>刚刚提交的回答已经保存在本地。下一轮生成完成后，会在当前页面直接显示。</p>
+        <div class="wizard-view__actions">
+          <button v-if="canGeneratePrd" type="button" class="button-primary" @click="goToPrd">生成PRD</button>
+          <button type="button" class="wizard-view__secondary" @click="openOriginalEditor">编辑原始需求</button>
+        </div>
+      </section>
       <section v-else class="wizard-view__empty">
         <span>AI 需求访谈</span>
-        <h1>关键信息已经足够，可以生成PRD</h1>
-        <p>你也可以继续补充细节。生成 PRD 不代表项目结束，后续仍可回来回答问题或修改需求结果。</p>
+        <h1>{{ completionTitle }}</h1>
+        <p>{{ completionDescription }}</p>
         <div class="wizard-view__actions">
-          <button type="button" class="button-primary" @click="supplementOpen = true">
-            继续澄清
+          <button v-if="needsMoreClarification" type="button" class="button-primary" :disabled="followUpBusy" @click="requestNextRound('AI 已生成下一轮追问。', 'AI 暂时没有生成新的追问，你可以补充想法后继续。')">
+            {{ followUpBusy ? '正在生成…' : '生成下一轮问题' }}
           </button>
-          <button type="button" class="button-primary" @click="goToPrd">
+          <button v-else type="button" class="button-primary" @click="goToPrd">
             生成PRD
           </button>
           <button type="button" class="wizard-view__secondary" @click="supplementOpen = true">
@@ -256,6 +502,33 @@ function goToModelSettings() {
           </div>
         </form>
       </section>
+      <div v-if="sourceEditorOpen" class="wizard-view__modal" role="dialog" aria-modal="true" aria-label="编辑原始需求">
+        <form class="wizard-view__dialog" @submit.prevent="saveOriginalPrompt">
+          <header>
+            <div>
+              <span>原始需求</span>
+              <h2>编辑原始需求</h2>
+            </div>
+            <button type="button" :disabled="sourceSaving" @click="sourceEditorOpen = false">关闭</button>
+          </header>
+          <textarea
+            v-model="originalPromptDraft"
+            rows="8"
+            :disabled="sourceSaving"
+            data-testid="original-prompt-editor"
+          ></textarea>
+          <p v-if="state.project.uploadedFileName" class="wizard-view__dialog-note">
+            已上传文档“{{ state.project.uploadedFileName }}”会继续作为分析材料保留。
+          </p>
+          <p v-if="sourceError" class="wizard-view__dialog-error" role="alert">{{ sourceError }}</p>
+          <footer>
+            <button type="button" class="wizard-view__secondary" :disabled="sourceSaving" @click="sourceEditorOpen = false">取消</button>
+            <button type="submit" class="button-primary" :disabled="sourceSaving" data-testid="save-original-prompt">
+              {{ sourceSaving ? '保存中…' : '保存原始需求' }}
+            </button>
+          </footer>
+        </form>
+      </div>
     </template>
   </main>
 </template>
@@ -267,6 +540,7 @@ function goToModelSettings() {
 .wizard-view__intro span,.wizard-view__empty span { color: var(--color-accent); font-size: 10px; font-weight: 750; }
 .wizard-view__intro h1 { margin: 5px 0 0; font-size: 26px; line-height: 1.25; }
 .wizard-view__intro p { margin: 7px 0 0; color: var(--color-text-secondary); font-size: 12px; line-height: 1.7; }
+.wizard-view__link-button { margin-top: 8px; padding: 0; border: 0; color: var(--color-accent); background: transparent; font-size: 12px; font-weight: 700; cursor: pointer; }
 .wizard-view__source { padding: 12px 14px; border: 1px solid var(--color-border); border-radius: 10px; background: var(--color-surface); }
 .wizard-view__coverage { display: grid; gap: 9px; padding: 12px 14px; border: 1px solid var(--color-border); border-radius: 10px; background: var(--color-surface); }
 .wizard-view__coverage b { font-size: 12px; }
@@ -291,4 +565,14 @@ function goToModelSettings() {
 .wizard-view__supplement p { margin: 0; color: var(--color-text-secondary); font-size: 11px; }
 .wizard-view__supplement div { display: flex; justify-content: flex-end; gap: 10px; }
 .wizard-view__supplement button { min-height: 36px; padding: 0 13px; border-radius: 8px; font-size: 12px; }
+.wizard-view__modal { position: fixed; z-index: 20; inset: 0; display: grid; place-items: center; padding: 24px; background: rgba(38, 43, 37, .32); }
+.wizard-view__dialog { display: grid; gap: 12px; width: min(680px, 100%); padding: 18px; border: 1px solid var(--color-border); border-radius: 10px; background: var(--color-surface); box-shadow: var(--shadow-card); }
+.wizard-view__dialog header,.wizard-view__dialog footer { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.wizard-view__dialog header span { color: var(--color-accent); font-size: 10px; font-weight: 750; }
+.wizard-view__dialog h2 { margin: 4px 0 0; font-size: 18px; }
+.wizard-view__dialog header button { border: 0; color: var(--color-text-secondary); background: transparent; cursor: pointer; }
+.wizard-view__dialog textarea { width: 100%; resize: vertical; border: 1px solid var(--color-border); border-radius: 8px; padding: 10px 12px; color: var(--color-text-primary); font: inherit; font-size: 12px; line-height: 1.7; }
+.wizard-view__dialog-note { margin: 0; color: var(--color-text-secondary); font-size: 11px; }
+.wizard-view__dialog-error { margin: 0; color: #873f3f; font-size: 11px; }
+.wizard-view__dialog footer button { min-height: 36px; padding: 0 13px; border-radius: 8px; font-size: 12px; }
 </style>

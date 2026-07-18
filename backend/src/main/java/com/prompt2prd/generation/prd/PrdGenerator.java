@@ -1,6 +1,8 @@
 package com.prompt2prd.generation.prd;
 
 import com.prompt2prd.analysis.domain.ConflictStatus;
+import com.prompt2prd.analysis.domain.ClarificationAnswer;
+import com.prompt2prd.analysis.domain.ClarificationQuestion;
 import com.prompt2prd.analysis.domain.RequirementItem;
 import com.prompt2prd.analysis.domain.RequirementState;
 import com.prompt2prd.analysis.domain.RequirementStatus;
@@ -15,6 +17,7 @@ import reactor.core.publisher.Flux;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 
 /** Builds deterministic PRD plans and delegates only section prose to the model. */
@@ -88,6 +91,7 @@ public final class PrdGenerator {
                 + "\nSection=" + definition.key().wireName() + " | " + definition.title()
                 + "\nCompleteness=" + state.completeness().total()
                 + "\nCurrent structured requirements=" + currentRequirements
+                + "\nSaved clarification answers=" + clarificationEvidence(state)
                 + "\nMissing or pending items=" + missing
                 + "\nRules: generate only from current information; "
                 + "confirmed content is written normally; AI_INFERENCE or AI_RECOMMENDATION content must be marked as AI推断，待确认; "
@@ -100,6 +104,33 @@ public final class PrdGenerator {
                 + "business processes must be text summaries unless the user generated an optional flowchart attachment; "
                 + "draft mode must visibly label unresolved facts; "
                 + "technical architecture, API design, database table design, and flowcharts belong to optional attachments.";
+    }
+
+    private List<String> clarificationEvidence(RequirementState state) {
+        Map<java.util.UUID, ClarificationQuestion> questionsById = state.questions().stream()
+                .collect(java.util.stream.Collectors.toMap(
+                        ClarificationQuestion::id,
+                        question -> question,
+                        (left, right) -> left));
+        return state.answers().stream()
+                .map(answer -> answerEvidence(answer, questionsById.get(answer.questionId())))
+                .filter(value -> !value.isBlank())
+                .toList();
+    }
+
+    private String answerEvidence(ClarificationAnswer answer, ClarificationQuestion question) {
+        if (question == null) return "";
+        List<String> selectedLabels = question.options().stream()
+                .filter(option -> answer.selectedOptionIds().contains(option.id()))
+                .map(option -> option.label())
+                .toList();
+        List<String> parts = new ArrayList<>();
+        if (answer.skipped()) parts.add("用户跳过");
+        if (!selectedLabels.isEmpty()) parts.add(String.join("、", selectedLabels));
+        if (answer.customAnswer() != null) parts.add(answer.customAnswer());
+        if (answer.note() != null) parts.add("备注：" + answer.note());
+        if (parts.isEmpty()) return "";
+        return question.text() + " -> " + String.join("；", parts);
     }
 
     private String statusLabel(RequirementStatus status) {

@@ -6,6 +6,7 @@ import { prdRepository } from '@/db/repositories/prdRepository'
 import { useModelConfigStore } from '@/stores/modelConfigStore'
 import { createPrdClient } from '@/api/prdApi'
 import { validateAnalysisModelSettings } from '@/api/modelSettingsValidation'
+import { generationFailureMessage } from '@/api/sseClient'
 import type { KnownStreamEvent } from '@/api/streamEvents'
 import type { PrdSection } from './types'
 import PrdSectionList from './PrdSectionList.vue'
@@ -63,6 +64,24 @@ const activeStatusLabel = computed(() => {
   if (status === 'GENERATING') return '生成中'
   if (status === 'FAILED') return '生成失败'
   return '尚未开始'
+})
+const prdFailureSummary = computed(() => {
+  const failed = sections.value.filter(section => section.status === 'FAILED')
+  if (!failed.length) return ''
+  const counts = new Map<string, number>()
+  for (const section of failed) {
+    const code = section.errorCode || 'SECTION_GENERATION_FAILED'
+    counts.set(code, (counts.get(code) ?? 0) + 1)
+  }
+  const [code, count] = [...counts.entries()].sort((a, b) => b[1] - a[1])[0]!
+  const suffix = failed.length === sections.value.length
+    ? '全部章节都失败，优先检查模型设置。'
+    : `${count} 个章节出现同类错误，可先重试失败章节。`
+  return `PRD 生成失败原因：${generationFailureMessage(code)}（${code}）${suffix}`
+})
+const activeFailureMessage = computed(() => {
+  if (activeSection.value?.status !== 'FAILED') return ''
+  return generationFailureMessage(activeSection.value.errorCode || 'SECTION_GENERATION_FAILED')
 })
 
 const activeContent = computed(() => {
@@ -303,6 +322,7 @@ function goToTechnicalPlan() {
     <div v-if="loading" class="status">正在读取 PRD 数据…</div>
 
     <div v-if="errorMessage" class="error" role="alert" data-testid="prd-error">{{ errorMessage }}</div>
+    <div v-if="prdFailureSummary" class="error" role="alert" data-testid="prd-failure-summary">{{ prdFailureSummary }}</div>
     <div v-if="warnMessage" class="warning" data-testid="prd-warning">{{ warnMessage }}</div>
 
     <section v-if="!loading" class="prd-status" aria-label="PRD章节状态">
@@ -392,7 +412,7 @@ function goToTechnicalPlan() {
           />
 
           <div v-if="activeSection.status === 'FAILED'" class="failed-info" data-testid="section-failed-info">
-            章节生成失败{{ activeSection.errorCode ? `（${activeSection.errorCode}）` : '' }}，可点击重新生成。
+            章节生成失败{{ activeSection.errorCode ? `（${activeSection.errorCode}）` : '' }}：{{ activeFailureMessage }} 可点击重新生成。
           </div>
         </template>
       </section>

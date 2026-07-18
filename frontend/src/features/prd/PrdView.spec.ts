@@ -144,6 +144,38 @@ describe('PrdView', () => {
     await failedItem.trigger('click')
     await flushPromises()
     expect(wrapper.find('[data-testid="section-failed-info"]').exists()).toBe(true)
+    expect(wrapper.find('[data-testid="section-failed-info"]').text()).toContain('模型生成超时')
+    expect(wrapper.find('[data-testid="prd-failure-summary"]').text()).toContain('TIMEOUT')
+  })
+
+  it('shows a readable summary when PRD section streaming fails', async () => {
+    mocks.initializeSections.mockResolvedValueOnce(sections().map(section => ({ ...section, status: 'DRAFT', errorCode: null })))
+    mocks.generateAll.mockImplementationOnce(async (_body, callbacks) => {
+      await callbacks.onEvent({
+        known: true,
+        requestId: '53be8d9c-8949-4476-8835-8f12080257ac',
+        eventId: 1,
+        type: 'section_started',
+        data: { sectionId: 'product-background-goals', title: '产品背景与目标' },
+        timestamp: '2026-07-17T00:00:00.000Z',
+      })
+      await callbacks.onEvent({
+        known: true,
+        requestId: '53be8d9c-8949-4476-8835-8f12080257ac',
+        eventId: 2,
+        type: 'section_failed',
+        data: { sectionId: 'product-background-goals', errorCode: 'MODEL_AUTHENTICATION_FAILED', retryable: false },
+        timestamp: '2026-07-17T00:00:00.000Z',
+      })
+      return { mode: 'DRAFT', missingItems: [], completedSections: [], failedSections: ['product-background-goals'] }
+    })
+    const wrapper = await mounted()
+
+    await wrapper.find('[data-testid="generate-all-btn"]').trigger('click')
+    await flushPromises()
+
+    expect(wrapper.find('[data-testid="prd-failure-summary"]').text()).toContain('模型 API Key 验证失败')
+    expect(wrapper.find('[data-testid="prd-failure-summary"]').text()).toContain('MODEL_AUTHENTICATION_FAILED')
   })
 
   it('shows loading state initially', async () => {

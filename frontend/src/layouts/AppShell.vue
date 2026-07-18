@@ -158,7 +158,9 @@ onBeforeUnmount(stopSidebarResize)
 <style scoped>
 .app-shell {
   display: grid;
+  height: 100vh;
   min-height: 100vh;
+  overflow: hidden;
   background: var(--color-background);
 }
 
@@ -334,6 +336,9 @@ onBeforeUnmount(stopSidebarResize)
 
 .app-shell__content {
   min-width: 0;
+  min-height: 0;
+  overflow: auto;
+  scrollbar-gutter: stable;
 }
 
 @media (max-width: 1080px) {

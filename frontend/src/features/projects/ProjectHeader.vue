@@ -2,12 +2,6 @@
 import { computed } from 'vue'
 import type { ProjectStage } from '@/features/projects/types'
 
-export interface ProjectProgressItem {
-  label: string
-  value: string
-  tone?: 'done' | 'pending' | 'blocked'
-}
-
 const props = withDefaults(
   defineProps<{
     projectName: string
@@ -15,7 +9,6 @@ const props = withDefaults(
     stage?: ProjectStage
     modelName?: string
     saveStatus?: string
-    progressItems?: ProjectProgressItem[]
     canGeneratePrd?: boolean
     generateHint?: string
   }>(),
@@ -24,9 +17,8 @@ const props = withDefaults(
     stage: 'CLARIFYING',
     modelName: undefined,
     saveStatus: undefined,
-    progressItems: () => [],
     canGeneratePrd: false,
-    generateHint: '首次 AI 解析完成后即可生成 PRD 草稿。',
+    generateHint: '首次 AI 解析完成后会进入 AI 澄清。',
   },
 )
 
@@ -35,15 +27,6 @@ const emit = defineEmits<{
 }>()
 
 const showSaveStatus = computed(() => Boolean(props.saveStatus))
-
-const summaryItems = computed<ProjectProgressItem[]>(() => props.progressItems.length
-  ? props.progressItems
-  : [
-      { label: '已确认', value: props.stage === 'CLARIFYING' ? '0项' : '已开始', tone: 'done' },
-      { label: '待确认', value: '0项', tone: 'pending' },
-      { label: '待分析', value: '0项', tone: 'pending' },
-      { label: '冲突', value: '0项', tone: 'pending' },
-    ])
 </script>
 
 <template>
@@ -53,15 +36,6 @@ const summaryItems = computed<ProjectProgressItem[]>(() => props.progressItems.l
       <div class="project-header__meta">
         <span class="project-header__completeness">
           需求完整度：<b>{{ completeness }}%</b>
-        </span>
-        <span
-          v-for="item in summaryItems"
-          :key="item.label"
-          class="project-header__progress"
-          :class="`project-header__progress--${item.tone ?? 'pending'}`"
-        >
-          <span>{{ item.label }}</span>
-          <b>{{ item.value }}</b>
         </span>
         <span v-if="modelName" class="project-header__model">{{ modelName }}</span>
       </div>
@@ -134,20 +108,11 @@ const summaryItems = computed<ProjectProgressItem[]>(() => props.progressItems.l
 }
 
 .project-header__model,
-.project-header__completeness,
-.project-header__progress {
+.project-header__completeness {
   font-size: 11px;
   font-weight: 600;
   padding: 3px 9px;
   border-radius: 6px;
-}
-
-.project-header__progress {
-  display: inline-flex;
-  gap: 5px;
-  align-items: center;
-  color: var(--color-text-secondary);
-  background: var(--color-surface-muted);
 }
 
 .project-header__completeness {
@@ -157,31 +122,6 @@ const summaryItems = computed<ProjectProgressItem[]>(() => props.progressItems.l
 
 .project-header__completeness b {
   font-weight: 760;
-}
-
-.project-header__progress span {
-  color: var(--color-text-muted);
-}
-
-.project-header__progress b {
-  color: var(--color-text-primary);
-  font-weight: 720;
-}
-
-.project-header__progress--done {
-  background: #eefaf5;
-}
-
-.project-header__progress--done b {
-  color: #246b58;
-}
-
-.project-header__progress--blocked {
-  background: #fff8f8;
-}
-
-.project-header__progress--blocked b {
-  color: #873f3f;
 }
 
 .project-header__model {
