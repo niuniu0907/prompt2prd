@@ -124,6 +124,10 @@ onMounted(async () => {
       if (roundStore.allQuestions.size === 0 && loadedState.questions.length > 0) {
         roundStore.setCurrentRoundQuestions(1, loadedState.questions)
       }
+      // If current round is empty but state has pending questions, re-seed from state
+      if (roundStore.currentRoundQuestions.length === 0 && loadedState.questions.length > 0) {
+        roundStore.setCurrentRoundQuestions(1, loadedState.questions)
+      }
     }
   }
   catch (error) { errorMessage.value = readableError(error) }

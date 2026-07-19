@@ -34,7 +34,7 @@ public final class PrdStreamOrchestrator {
             // Limited concurrency of 2 to avoid model rate-limiting while still
             // being faster than fully serial Flux.concat
             Flux<StreamEvent> sections = Flux.fromIterable(execution.plan().sections())
-                    .flatMapSequential(
+                    .flatMap(
                             section -> streamSection(execution.modelContext(), section, events, completed, failed),
                             2); // max concurrency
             return sections.concatWith(Mono.fromSupplier(() -> events.next(
