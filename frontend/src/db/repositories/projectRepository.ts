@@ -233,6 +233,7 @@ export class ProjectRepository
         this.database.requirement_item,
         this.database.clarification_question,
         this.database.clarification_answer,
+        this.database.clarification_round,
         this.database.requirement_conflict,
         this.database.requirement_version,
         this.database.requirement_change,
@@ -241,11 +242,12 @@ export class ProjectRepository
       ],
       async () => {
         const sourceProject = await this.requireProject(projectId)
-        const [requirements, questions, answers, conflicts, versions, changes, sections, flowcharts] =
+        const [requirements, questions, answers, rounds, conflicts, versions, changes, sections, flowcharts] =
           await Promise.all([
             this.database.requirement_item.where('projectId').equals(projectId).toArray(),
             this.database.clarification_question.where('projectId').equals(projectId).toArray(),
             this.database.clarification_answer.where('projectId').equals(projectId).toArray(),
+            this.database.clarification_round.where('projectId').equals(projectId).toArray(),
             this.database.requirement_conflict.where('projectId').equals(projectId).toArray(),
             this.database.requirement_version.where('projectId').equals(projectId).toArray(),
             this.database.requirement_change.where('projectId').equals(projectId).toArray(),
@@ -254,7 +256,7 @@ export class ProjectRepository
           ])
 
         const maps = this.createCopyMaps()
-        this.allocateGraphIds(maps, requirements, questions, answers, conflicts, versions, changes, sections, flowcharts)
+        this.allocateGraphIds(maps, requirements, questions, answers, rounds, conflicts, versions, changes, sections, flowcharts)
 
         const copiedProject: Project = {
           ...structuredClone(sourceProject),
@@ -304,6 +306,14 @@ export class ProjectRepository
         const copiedFlowcharts = flowcharts.map((flowchart) =>
           this.copyFlowchart(flowchart, copiedProject.id, maps, now),
         )
+        const copiedRounds = rounds.map((round) => ({
+          ...structuredClone(round),
+          id: this.nextId(),
+          projectId: copiedProject.id,
+          questionIds: round.questionIds.map((qid) => this.mappedId(maps.question, qid)),
+          createdAt: now,
+          generatedAt: now,
+        }))
 
         await this.database.project.add(copiedProject)
         await this.bulkAdd(this.database.requirement_item, copiedRequirements)
@@ -314,6 +324,7 @@ export class ProjectRepository
         await this.bulkAdd(this.database.requirement_change, copiedChanges)
         await this.bulkAdd(this.database.prd_section, copiedSections)
         await this.bulkAdd(this.database.flowchart, copiedFlowcharts)
+        await this.bulkAdd(this.database.clarification_round, copiedRounds)
 
         return copiedProject
       },
@@ -330,6 +341,7 @@ export class ProjectRepository
         this.database.requirement_item,
         this.database.clarification_question,
         this.database.clarification_answer,
+        this.database.clarification_round,
         this.database.requirement_conflict,
         this.database.requirement_version,
         this.database.requirement_change,
@@ -346,6 +358,7 @@ export class ProjectRepository
           this.database.requirement_item.where('projectId').equals(projectId).delete(),
           this.database.clarification_question.where('projectId').equals(projectId).delete(),
           this.database.clarification_answer.where('projectId').equals(projectId).delete(),
+          this.database.clarification_round.where('projectId').equals(projectId).delete(),
           this.database.requirement_conflict.where('projectId').equals(projectId).delete(),
           this.database.requirement_version.where('projectId').equals(projectId).delete(),
           this.database.requirement_change.where('projectId').equals(projectId).delete(),
@@ -401,6 +414,7 @@ export class ProjectRepository
     requirements: RequirementItem[],
     questions: ClarificationQuestion[],
     answers: ClarificationAnswer[],
+    rounds: import('@/features/requirements/types').ClarificationRound[],
     conflicts: RequirementConflict[],
     versions: RequirementVersion[],
     changes: RequirementChange[],
@@ -422,6 +436,9 @@ export class ProjectRepository
     for (const change of changes) this.allocate(maps.change, change.id)
     for (const section of sections) this.allocate(maps.section, section.id)
     for (const flowchart of flowcharts) this.allocate(maps.flowchart, flowchart.id)
+    for (const round of rounds) {
+      for (const qid of round.questionIds) this.allocate(maps.question, qid)
+    }
   }
 
   private allocateQuestion(maps: CopyMaps, question: ClarificationQuestion): void {

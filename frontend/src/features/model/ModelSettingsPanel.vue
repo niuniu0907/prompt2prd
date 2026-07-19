@@ -37,6 +37,8 @@ const loadingModels = ref(false)
 const testing = ref(false)
 const capabilityError = ref('')
 const modelListError = ref('')
+let modelListGeneration = 0
+let modelListDebounceTimer: ReturnType<typeof setTimeout> | undefined
 const resultMessage = ref('')
 const errorMessage = ref('')
 const availableModels = ref<AvailableModel[]>([])
@@ -85,21 +87,24 @@ watch(
   () => {
     resultMessage.value = ''
     errorMessage.value = ''
-    void refreshModels()
+    scheduleRefreshModels()
   },
 )
 
+function scheduleRefreshModels() {
+  if (modelListDebounceTimer !== undefined) clearTimeout(modelListDebounceTimer)
+  modelListDebounceTimer = setTimeout(() => {
+    modelListDebounceTimer = undefined
+    void refreshModels()
+  }, 400)
+}
+
 function selectProvider(value: string) {
   store.setProvider(value as ModelProvider)
-  void refreshModels()
 }
 
 function selectModel(value: string) {
   store.setModel(value)
-}
-
-function scheduleRefreshModels() {
-  void Promise.resolve().then(refreshModels)
 }
 
 async function setRemember(value: boolean) {
@@ -117,11 +122,13 @@ async function refreshModels() {
     modelListError.value = ''
     return
   }
+  const generation = ++modelListGeneration
   loadingModels.value = true
   modelListError.value = ''
   manualModelAllowed.value = false
   try {
     const result = await client.listModels(listModelsInput())
+    if (generation !== modelListGeneration) return // stale response
     availableModels.value = result.models
     if (result.models.length === 0) {
       manualModelAllowed.value = true
@@ -267,7 +274,6 @@ function mapError(code: string): { storeError: ModelKeyError; message: string } 
           autocomplete="off"
           placeholder="输入当前服务商的 Key"
           data-testid="api-key-input"
-          @input="scheduleRefreshModels"
         />
       </label>
 
@@ -343,7 +349,6 @@ function mapError(code: string): { storeError: ModelKeyError; message: string } 
             :disabled="provider !== 'CUSTOM'"
             data-testid="base-url-input"
             placeholder="https://example.com/v1"
-            @input="scheduleRefreshModels"
           />
           <small v-if="provider !== 'CUSTOM'">{{ providerLabels[provider] }} 会自动使用此地址。</small>
           <small v-else>公网必须使用 HTTPS；仅 localhost、127.0.0.1 和 ::1 可使用 HTTP。</small>

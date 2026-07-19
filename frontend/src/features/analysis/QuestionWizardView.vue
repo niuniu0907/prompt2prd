@@ -229,9 +229,7 @@ async function triggerPreGeneration() {
 
     if (result.success && result.questions.length > 0) {
       const questions = result.questions as ClarificationQuestion[]
-      roundStore.completeGeneration(nextRoundNo, questions, requestId)
-
-      // Persist round to IndexedDB
+      const now = new Date().toISOString()
       const round: ClarificationRound = {
         id: crypto.randomUUID(),
         projectId: projectId.value,
@@ -241,16 +239,27 @@ async function triggerPreGeneration() {
         questionIds: questions.map(q => q.id),
         coverageCategories: result.coverageCategories,
         status: 'READY',
-        createdAt: new Date().toISOString(),
-        generatedAt: new Date().toISOString(),
+        createdAt: now,
+        generatedAt: now,
       }
-      await clarificationRoundRepository.saveRound(round)
 
-      // Save generated questions to clarification_question table for recovery
-      await appDatabase.clarification_question.bulkAdd(questions)
+      // Atomic IndexedDB write: round + questions + roundStore metadata
+      await appDatabase.transaction(
+        'rw',
+        [
+          appDatabase.clarification_round,
+          appDatabase.clarification_question,
+          appDatabase.app_setting,
+        ],
+        async () => {
+          await appDatabase.clarification_round.put(round)
+          await appDatabase.clarification_question.bulkAdd(questions)
+          await roundStore.persist(projectId.value)
+        },
+      )
 
-      // Persist round store state (round metadata, not questions)
-      await roundStore.persist(projectId.value)
+      // Only update Pinia state after successful persistence
+      roundStore.completeGeneration(nextRoundNo, questions, requestId)
     }
   } catch (error) {
     roundStore.markGenerationFailed(nextRoundNo,
@@ -299,6 +308,36 @@ async function submitSupplement() {
     void triggerPreGeneration()
   } catch (error) { errorMessage.value = readableError(error) }
   finally { busy.value = false }
+}
+
+async function retrySavedAnswers() {
+  if (!state.value || busy.value) return
+  const settings = props.modelSettings ?? requestModelSettings()
+  const validation = validateAnalysisModelSettings(settings)
+  if (validation) {
+    errorMessage.value = validation
+    return
+  }
+  busy.value = true; errorMessage.value = ''; completedMessage.value = ''
+  try {
+    const finalState = await client.submitAnswers({
+      state: toServerState(state.value),
+      answers: toAnswerTurns(state.value.questions, state.value.answers),
+      originalInput: originalProjectInput(state.value),
+      missingInformation: state.value.requirements.filter(item => item.type === 'MISSING_INFORMATION').map(item => item.content),
+      modelSettings: settings,
+    })
+    const savedState = await stateStore.saveFinal(projectId.value, finalState)
+    state.value = savedState
+    notifyAnalysisStateSaved()
+    await roundStore.markDownstreamStale(roundStore.currentRoundNo)
+    completedMessage.value = '回答已保存，正在生成下一轮问题...'
+    busy.value = false
+    void triggerPreGeneration()
+  } catch (error) {
+    errorMessage.value = readableError(error)
+    busy.value = false
+  }
 }
 
 async function retryFailedGeneration() {

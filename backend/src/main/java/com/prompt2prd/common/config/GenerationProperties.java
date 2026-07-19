@@ -99,7 +99,8 @@ public final class GenerationProperties {
         String raw = env.get(key);
         if (raw == null || raw.isBlank()) return fallback;
         try {
-            return Duration.ofSeconds(Long.parseLong(raw.trim()));
+            Duration duration = Duration.ofSeconds(Long.parseLong(raw.trim()));
+            return requirePositive(duration, key);
         } catch (NumberFormatException e) {
             throw new IllegalArgumentException(key + " must be a valid number of seconds");
         }
@@ -109,7 +110,8 @@ public final class GenerationProperties {
         String raw = env.get(key);
         if (raw == null || raw.isBlank()) return fallback;
         try {
-            return Duration.ofMillis(Long.parseLong(raw.trim()));
+            Duration duration = Duration.ofMillis(Long.parseLong(raw.trim()));
+            return requirePositive(duration, key);
         } catch (NumberFormatException e) {
             throw new IllegalArgumentException(key + " must be a valid number of milliseconds");
         }

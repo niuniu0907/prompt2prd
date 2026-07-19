@@ -65,6 +65,7 @@ export class RoundGenerationError extends Error {
 export function createAnalysisClient(fetcher: FetchLike = fetch) {
   let requestVersion = 0
   let activeController: AbortController | undefined
+  let generationController: AbortController | undefined
   let generationRequestId: string | null = null
 
   const execute = async (
@@ -118,8 +119,8 @@ export function createAnalysisClient(fetcher: FetchLike = fetch) {
     if (!response.ok) {
       let errorMessage = `生成请求失败（HTTP ${response.status}）`
       try {
-        const payload = await response.json() as Partial<{ errorCode: string; errorMessage: string }>
-        if (payload.errorMessage) errorMessage = payload.errorMessage
+        const payload = await response.json() as Partial<{ code: string; message: string }>
+        if (payload.message) errorMessage = payload.message
       } catch { /* ignore parse failure */ }
       throw new RoundGenerationError(errorMessage, `HTTP_${response.status}`, response.status >= 500)
     }
@@ -141,9 +142,19 @@ export function createAnalysisClient(fetcher: FetchLike = fetch) {
       const id = crypto.randomUUID()
       generationRequestId = id
 
+      // Use a dedicated AbortController so cancel() can abort in-flight generateRound
+      generationController?.abort()
+      const controller = new AbortController()
+      generationController = controller
+
+      // Compose external signal (if provided) with the internal abort controller
+      const compositeSignal = signal
+        ? combineSignals(signal, controller.signal)
+        : controller.signal
+
       const startTime = performance.now()
       try {
-        const result = await jsonPost('/api/analysis/generate-round', body, signal) as GenerateRoundResponseBody
+        const result = await jsonPost('/api/analysis/generate-round', body, compositeSignal) as GenerateRoundResponseBody
         const elapsed = Math.round(performance.now() - startTime)
         console.debug(`[analysisApi] generateRound roundNo=${body.targetRoundNo} latencyMs=${elapsed}`)
 
@@ -171,12 +182,16 @@ export function createAnalysisClient(fetcher: FetchLike = fetch) {
           'GENERATION_FAILED',
           true,
         )
+      } finally {
+        if (generationRequestId === id) generationController = undefined
       }
     },
 
     cancel: () => {
       requestVersion += 1
       generationRequestId = null
+      generationController?.abort()
+      generationController = undefined
       activeController?.abort()
       activeController = undefined
     },
@@ -184,3 +199,12 @@ export function createAnalysisClient(fetcher: FetchLike = fetch) {
 }
 
 export type AnalysisClient = ReturnType<typeof createAnalysisClient>
+
+function combineSignals(a: AbortSignal, b: AbortSignal): AbortSignal {
+  const controller = new AbortController()
+  const onAbort = () => controller.abort()
+  a.addEventListener('abort', onAbort, { once: true })
+  b.addEventListener('abort', onAbort, { once: true })
+  if (a.aborted || b.aborted) controller.abort()
+  return controller.signal
+}
