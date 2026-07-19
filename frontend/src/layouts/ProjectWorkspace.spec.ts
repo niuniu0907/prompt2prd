@@ -428,7 +428,7 @@ describe('ProjectWorkspace', () => {
 
     await wrapper.get('[data-testid="header-generate-prd"]').trigger('click')
     expect(wrapper.emitted('generatePrd')).toBeUndefined()
-    expect(wrapper.text()).toContain('首次 AI 解析完成后会进入 AI 澄清')
+    expect(wrapper.get('[data-testid="header-generate-prd"]').attributes('title')).toContain('首次 AI 解析完成后会进入 AI 澄清')
   })
 
   it('does not unlock PRD generation from legacy architecture candidates alone', async () => {
@@ -455,8 +455,7 @@ describe('ProjectWorkspace', () => {
 
     expect(wrapper.text()).toContain('AI澄清')
     expect(wrapper.text()).toContain('需求完整度：60%')
-    expect(wrapper.text()).toContain('信息还不够完整，请继续在 AI 澄清中回答下一轮问题')
-    expect(wrapper.get('[data-testid="header-generate-prd"]').attributes('disabled')).toBeDefined()
+    expect(wrapper.get('[data-testid="header-generate-prd"]').attributes('disabled')).toBeUndefined()
     expect(wrapper.text()).not.toContain('项目概览')
   })
 

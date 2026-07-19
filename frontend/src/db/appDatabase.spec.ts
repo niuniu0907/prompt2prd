@@ -58,7 +58,7 @@ describe('AppDatabase', () => {
 
     const upgraded = createAppDatabase(name)
     await upgraded.open()
-    expect(upgraded.verno).toBe(2)
+    expect(upgraded.verno).toBe(DATABASE_VERSION)
     await expect(upgraded.project.get(project.id)).resolves.toEqual(project)
     expect(upgraded.tables.map(table => table.name)).toContain('flowchart')
     upgraded.close()
@@ -93,6 +93,7 @@ describe('AppDatabase', () => {
       'requirement_item',
       'clarification_question',
       'clarification_answer',
+      'clarification_round',
       'requirement_conflict',
       'requirement_version',
       'requirement_change',
