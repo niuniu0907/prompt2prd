@@ -64,10 +64,6 @@ const needsAttention = (r: RequirementItem) =>
 <template>
   <article
     class="requirement-list-item"
-    :class="{
-      'requirement-list-item--saving': saving,
-      'requirement-list-item--saved': saved,
-    }"
     role="button"
     tabindex="0"
     @click="$emit('view', requirement)"
@@ -78,6 +74,13 @@ const needsAttention = (r: RequirementItem) =>
         <span class="requirement-list-item__type">{{ typeLabels[requirement.type] ?? requirement.type }}</span>
         <span class="requirement-list-item__status" :class="statusClass(requirement.status)">
           {{ statusLabels[requirement.status] ?? requirement.status }}
+        </span>
+        <span v-if="saving" class="requirement-list-item__saving-indicator" aria-live="polite">
+          <svg class="requirement-list-item__saving-spinner" viewBox="0 0 16 16" aria-hidden="true">
+            <circle cx="8" cy="8" r="6" fill="none" stroke="currentColor" stroke-width="1.5"
+                    stroke-dasharray="28" stroke-dashoffset="8" />
+          </svg>
+          保存中…
         </span>
       </div>
       <h4 class="requirement-list-item__title">{{ requirement.title }}</h4>
@@ -112,15 +115,21 @@ const needsAttention = (r: RequirementItem) =>
   outline: 3px solid rgba(36, 157, 165, 0.25);
   outline-offset: -2px;
 }
-.requirement-list-item--saving {
-  opacity: 0.7;
+.requirement-list-item__saving-indicator {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  color: var(--color-text-muted);
 }
-.requirement-list-item--saved {
-  animation: save-flash 1200ms var(--ease-standard);
+.requirement-list-item__saving-spinner {
+  width: 12px;
+  height: 12px;
+  color: var(--color-accent);
+  animation: saving-spin 800ms linear infinite;
 }
-@keyframes save-flash {
-  0% { background: #eefaf5; }
-  100% { background: var(--color-surface); }
+@keyframes saving-spin {
+  to { transform: rotate(360deg); }
 }
 .requirement-list-item__main {
   flex: 1;

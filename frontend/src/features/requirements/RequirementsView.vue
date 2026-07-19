@@ -578,7 +578,8 @@ function readable(error: unknown) {
 .req-list-enter-active,
 .req-list-leave-active,
 .req-list-move {
-  transition: all var(--motion-base) var(--ease-standard);
+  transition: opacity var(--motion-base) var(--ease-standard),
+              transform var(--motion-base) var(--ease-standard);
 }
 .req-list-enter-from {
   opacity: 0;
@@ -595,7 +596,8 @@ function readable(error: unknown) {
 .req-item-enter-active,
 .req-item-leave-active,
 .req-item-move {
-  transition: all var(--motion-base) var(--ease-standard);
+  transition: opacity var(--motion-base) var(--ease-standard),
+              transform var(--motion-base) var(--ease-standard);
 }
 .req-item-enter-from {
   opacity: 0;
