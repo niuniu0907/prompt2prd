@@ -55,7 +55,7 @@ defineEmits<{ toggle: [] }>()
   height: 16px;
   flex-shrink: 0;
   color: var(--color-text-muted);
-  transition: transform 200ms ease;
+  transition: transform var(--motion-base) var(--ease-standard);
   transform: rotate(-90deg);
 }
 .requirement-group__chevron--open {
@@ -78,16 +78,22 @@ defineEmits<{ toggle: [] }>()
   text-align: center;
 }
 .requirement-group__body {
-  max-height: 5000px;
+  display: grid;
+  grid-template-rows: 1fr;
   overflow: hidden;
-  transition: max-height 300ms ease;
+  transition: grid-template-rows var(--motion-slow) var(--ease-standard);
 }
 .requirement-group--collapsed .requirement-group__body {
-  max-height: 0;
+  grid-template-rows: 0fr;
 }
 .requirement-group__list {
+  min-height: 0;
   display: grid;
   gap: 1px;
   background: var(--color-border);
+  transition: opacity var(--motion-slow) var(--ease-standard);
+}
+.requirement-group--collapsed .requirement-group__list {
+  opacity: 0;
 }
 </style>

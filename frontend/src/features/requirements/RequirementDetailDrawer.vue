@@ -249,7 +249,7 @@ const sourceLabels: Record<string, string> = {
   background: rgba(0,0,0,0.3);
   opacity: 0;
   pointer-events: none;
-  transition: opacity 250ms ease;
+  transition: opacity var(--motion-base) var(--ease-standard);
 }
 .drawer-overlay--open {
   opacity: 1;
@@ -267,7 +267,7 @@ const sourceLabels: Record<string, string> = {
   display: flex;
   flex-direction: column;
   transform: translateX(100%);
-  transition: transform 250ms ease;
+  transition: transform var(--motion-base) var(--ease-standard);
 }
 .drawer--open {
   transform: translateX(0);

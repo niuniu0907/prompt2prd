@@ -14,6 +14,7 @@ import {
 import type { ClarificationAnswer, ClarificationQuestion, ClarificationRound } from '@/features/requirements/types'
 import { useModelConfigStore } from '@/stores/modelConfigStore'
 import { useAnalysisRoundStore } from '@/stores/analysisRoundStore'
+import { useToast } from '@/composables/useToast'
 import QuestionBatch from './QuestionBatch.vue'
 import QuestionSkeleton from './QuestionSkeleton.vue'
 import type { QuestionAnswerDraft } from './answerTypes'
@@ -43,7 +44,9 @@ const sourceRepository = props.sourceRepository ?? projectRepository
 const client = props.client ?? createAnalysisClient()
 const modelConfig = useModelConfigStore()
 const roundStore = useAnalysisRoundStore()
+const { success: showSuccess, error: showError, info: showInfo } = useToast()
 const state = ref<AnalysisState | null>(null)
+/** IDLE → SAVING(保存中) → ANALYZING(AI整理中) → GENERATING_NEXT_ROUND(正在生成下一轮) → IDLE */
 type SubmitStatus = 'IDLE' | 'SAVING' | 'ANALYZING' | 'GENERATING_NEXT_ROUND'
 const submitStatus = ref<SubmitStatus>('IDLE')
 const loading = ref(true)
@@ -157,8 +160,9 @@ async function submit(drafts: QuestionAnswerDraft[]) {
     completedMessage.value = ''
     return
   }
-  submitStatus.value = 'SAVING'; errorMessage.value = ''; completedMessage.value = ''
+  submitStatus.value = 'SAVING'; errorMessage.value = ''; completedMessage.value = '保存中…'
   analysisProgressMessage.value = ''; analysisTimedOut.value = false
+  showInfo('保存中…')
   try {
     // 1. Persist answers to IndexedDB immediately
     const persisted = await clarification.submitBatch(projectId.value, drafts)
@@ -168,6 +172,7 @@ async function submit(drafts: QuestionAnswerDraft[]) {
 
     // 2. Send ONLY current batch answers to backend with SSE progress callbacks
     submitStatus.value = 'ANALYZING'
+    showInfo('AI整理中…')
     analysisStartTime.value = Date.now()
     startAnalysisTimer()
 
@@ -198,6 +203,7 @@ async function submit(drafts: QuestionAnswerDraft[]) {
 
     completedMessage.value = '回答已保存'
     submitStatus.value = 'GENERATING_NEXT_ROUND'
+    showInfo('正在生成下一轮')
     void triggerPreGeneration()
   } catch (error) {
     stopAnalysisTimer()
