@@ -118,8 +118,16 @@ export class RequirementInteractionRepository {
     const versionId = this.createId(); const changeId = this.createId()
     assertUuid(versionId, 'version id'); assertUuid(changeId, 'change id')
     await this.database.requirement_version.add({ id: versionId, projectId, changeType, summary, snapshot, createdAt: now })
-    await this.database.requirement_change.add({ id: changeId, projectId, versionId, requirementId, changeType, field, oldValue, newValue, createdAt: now })
+    await this.database.requirement_change.add({ id: changeId, projectId, versionId, requirementId, changeType, field, oldValue: safeToPlain(oldValue), newValue: safeToPlain(newValue), createdAt: now })
   }
 }
 
 export const requirementInteractionRepository = new RequirementInteractionRepository()
+
+function safeToPlain<T>(value: T): T {
+  try {
+    return structuredClone(value)
+  } catch {
+    return JSON.parse(JSON.stringify(value)) as T
+  }
+}

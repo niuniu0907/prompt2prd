@@ -17,7 +17,10 @@ const { toasts } = useToast()
   </div>
   <RouterView v-slot="{ Component, route }">
     <Transition :name="(route.meta.transition as string) || 'page'" mode="out-in">
-      <component :is="Component" :key="route.path" />
+      <component
+        :is="Component"
+        :key="route.matched[0]?.path ?? route.path"
+      />
     </Transition>
   </RouterView>
 </template>

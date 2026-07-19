@@ -111,6 +111,7 @@ function syncFromRoute() {
 watch(() => route.name, syncFromRoute)
 
 onMounted(async () => {
+  console.log('[ProjectWorkspace] mounted')
   try {
     await refreshProjectContext()
     syncFromRoute()
@@ -123,6 +124,7 @@ onMounted(async () => {
 })
 
 onBeforeUnmount(() => {
+  console.log('[ProjectWorkspace] beforeUnmount')
   stopProjectNavResize()
   window.removeEventListener('prompt2prd:analysis-state-saved', handleAnalysisStateSaved)
 })
@@ -258,9 +260,9 @@ function goHome() {
           :class="{ 'workspace__canvas--wide': currentModule === 'prd' || currentModule === 'flowchart' }"
           data-testid="workspace-canvas"
         >
-          <RouterView v-slot="{ Component }">
-            <Transition name="canvas" mode="out-in">
-              <component :is="Component" />
+          <RouterView v-slot="{ Component, route }">
+            <Transition name="canvas">
+              <component :is="Component" :key="route.name" />
             </Transition>
           </RouterView>
         </section>
@@ -390,6 +392,7 @@ function goHome() {
 }
 
 .workspace__canvas {
+  position: relative;
   min-width: 0;
   padding: 24px 28px;
   overflow-y: auto;
@@ -405,16 +408,23 @@ function goHome() {
   width: min(100%, 1400px);
 }
 
-/* Canvas child route transitions */
+/* Canvas child route transitions — cross-fade, no blank frames */
 .canvas-enter-active {
-  transition: opacity var(--motion-base) var(--ease-standard);
+  transition: opacity var(--motion-fast) var(--ease-standard),
+              transform var(--motion-fast) var(--ease-standard);
 }
 .canvas-leave-active {
-  transition: opacity var(--motion-base) var(--ease-standard);
+  transition: opacity var(--motion-fast) var(--ease-standard),
+              transform var(--motion-fast) var(--ease-standard);
+  position: absolute;
 }
-.canvas-enter-from,
+.canvas-enter-from {
+  opacity: 0;
+  transform: translateY(4px);
+}
 .canvas-leave-to {
   opacity: 0;
+  transform: translateY(-4px);
 }
 
 .workspace__panel {

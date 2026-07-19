@@ -74,6 +74,14 @@ export class AnalysisStateRepository implements AnalysisStateStore {
       throw new TypeError('Analysis state belongs to a different project')
     }
 
+    // Defensive deep-clone: strip any Vue reactive proxies that may have
+    // leaked through shared references before IndexedDB structured-clone.
+    const plainCompleteness = safeToPlain(state.completeness)
+    const plainRequirements = state.requirements.map(safeToPlain)
+    const plainQuestions = state.questions.map(safeToPlain)
+    const plainAnswers = state.answers.map(safeToPlain)
+    const plainConflicts = state.conflicts.map(safeToPlain)
+
     return this.database.transaction(
       'rw',
       [
@@ -97,7 +105,7 @@ export class AnalysisStateRepository implements AnalysisStateStore {
           name: current.userRenamed ? current.name : state.project.name,
           language: state.project.language,
           stage: state.project.stage,
-          completeness: state.completeness.total,
+          completeness: plainCompleteness.total,
           updatedAt: now,
         }
 
@@ -108,14 +116,14 @@ export class AnalysisStateRepository implements AnalysisStateStore {
         await this.database.project.put(project)
         await this.database.app_setting.put({
           key: completenessKey(projectId),
-          value: state.completeness,
+          value: plainCompleteness,
           updatedAt: now,
         })
-        const requirements = [...state.requirements, ...preservedArchitectureCandidates]
+        const requirements = [...plainRequirements, ...preservedArchitectureCandidates]
         if (requirements.length) await this.database.requirement_item.bulkAdd(requirements)
-        if (state.questions.length) await this.database.clarification_question.bulkAdd(state.questions)
-        if (state.answers.length) await this.database.clarification_answer.bulkAdd(state.answers)
-        if (state.conflicts.length) await this.database.requirement_conflict.bulkAdd(state.conflicts)
+        if (plainQuestions.length) await this.database.clarification_question.bulkAdd(plainQuestions)
+        if (plainAnswers.length) await this.database.clarification_answer.bulkAdd(plainAnswers)
+        if (plainConflicts.length) await this.database.requirement_conflict.bulkAdd(plainConflicts)
 
         return { ...state, project, requirements }
       },
@@ -162,4 +170,19 @@ function isCompleteness(value: unknown): value is CompletenessScore {
     && Array.isArray(candidate.dimensions)
     && typeof candidate.pendingCount === 'number'
     && typeof candidate.hasCoreConflict === 'boolean'
+}
+
+/**
+ * Returns a deep-plain copy of the value, stripping Vue reactive proxies.
+ * Falls back to the original value when structured cloning succeeds directly,
+ * which avoids the cost of a JSON round-trip for most IndexedDB-originated data.
+ */
+function safeToPlain<T>(value: T): T {
+  try {
+    // structuredClone succeeds for plain objects but throws for reactive proxies
+    return structuredClone(value)
+  } catch {
+    // JSON round-trip strips all proxies and non-serializable values
+    return JSON.parse(JSON.stringify(value)) as T
+  }
 }
