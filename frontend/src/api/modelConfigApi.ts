@@ -41,9 +41,9 @@ export interface ModelConnectionResult {
 }
 
 export interface ModelConfigClient {
-  getCapabilities(): Promise<ModelCapabilities>
-  listModels(input: ModelListInput): Promise<ModelListResult>
-  testConnection(input: ModelConnectionInput): Promise<ModelConnectionResult>
+  getCapabilities(signal?: AbortSignal): Promise<ModelCapabilities>
+  listModels(input: ModelListInput, signal?: AbortSignal): Promise<ModelListResult>
+  testConnection(input: ModelConnectionInput, signal?: AbortSignal): Promise<ModelConnectionResult>
 }
 
 interface ApiErrorBody {
@@ -66,23 +66,25 @@ export class ModelConfigApiError extends Error {
 
 export function createModelConfigClient(fetcher: FetchLike = fetch): ModelConfigClient {
   return {
-    async getCapabilities() {
-      const response = await fetcher('/api/model-config')
+    async getCapabilities(signal?: AbortSignal) {
+      const response = await fetcher('/api/model-config', { signal })
       return readJson<ModelCapabilities>(response)
     },
-    async listModels(input) {
+    async listModels(input, signal?: AbortSignal) {
       const response = await fetcher('/api/model-config/models', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(input),
+        signal,
       })
       return readJson<ModelListResult>(response)
     },
-    async testConnection(input) {
+    async testConnection(input, signal?: AbortSignal) {
       const response = await fetcher('/api/model-config/test', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(input),
+        signal,
       })
       return readJson<ModelConnectionResult>(response)
     },

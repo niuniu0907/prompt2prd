@@ -87,9 +87,9 @@ public class AnalysisController {
         return Mono.deferContextual(contextView -> {
             String requestId = contextView.getOrDefault(
                     RequestIdWebFilter.REQUEST_ID_KEY, UUID.randomUUID().toString());
-            quotaService.beginOperation(
-                    clientIpDigest.from(exchange), request.modelSettings().keySource(),
-                    com.prompt2prd.quota.QuotaOperation.ANALYSIS);
+            // Pre-generation only counts the real upstream model call;
+            // it must not consume a user-facing operation slot (the user
+            // hasn't submitted this round yet).
             quotaService.acquireUpstreamCalls(request.modelSettings().keySource(), 1);
             ModelCancellationSignal cancellation = new ModelCancellationSignal();
 

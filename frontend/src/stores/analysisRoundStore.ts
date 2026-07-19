@@ -78,12 +78,19 @@ export const useAnalysisRoundStore = defineStore('analysisRound', () => {
     }
   }
 
-  function activateNextRound(): boolean {
+  async function activateNextRound(projectId: string, database: AppDatabase = appDatabase): Promise<boolean> {
     if (readyNextRoundNo.value === null) return false
-    currentRoundNo.value = readyNextRoundNo.value
+    const nextRound = readyNextRoundNo.value
+    currentRoundNo.value = nextRound
     readyNextRoundNo.value = null
     contextVersion.value++
     generationError.value = null
+
+    // Persist the round status change (READY → ACTIVE) and the updated state
+    await database.clarification_round
+      .where('[projectId+roundNo]').equals([projectId, nextRound])
+      .modify({ status: 'ACTIVE' as ClarificationRoundStatus, generatedAt: new Date().toISOString() })
+    await persist(projectId, database)
     return true
   }
 
@@ -209,9 +216,9 @@ export const useAnalysisRoundStore = defineStore('analysisRound', () => {
     // Restore ready next round: prefer the nearest READY round after the current round
     const readyRounds = rounds.filter(r => r.status === 'READY').sort((a, b) => a.roundNo - b.roundNo)
     if (readyRounds.length && !readyNextRoundNo.value) {
-      // Pick the smallest READY roundNo >= currentRoundNo; otherwise pick the largest overall
+      // Pick the smallest READY roundNo > currentRoundNo; otherwise pick the largest overall
       const current = currentRoundNo.value
-      const upcoming = readyRounds.filter(r => r.roundNo >= current)
+      const upcoming = readyRounds.filter(r => r.roundNo > current)
       readyNextRoundNo.value = upcoming.length > 0 ? upcoming[0].roundNo : readyRounds[readyRounds.length - 1].roundNo
     }
 
