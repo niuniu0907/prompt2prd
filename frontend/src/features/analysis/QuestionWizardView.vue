@@ -21,6 +21,7 @@ import { activeCoverageKeys, prdCoverageAreas } from './prdCoverage'
 
 interface AnswerAnalysisRunner {
   submitAnswers(body: AnalysisAnswersRequestBody, callbacks?: AnalysisCallbacks): Promise<unknown>
+  generateRound(body: GenerateRoundRequestBody, signal?: AbortSignal): Promise<{ success: boolean; questions: unknown[]; coverageCategories: string[]; requestId: string }>
   cancel(): void
 }
 
@@ -43,7 +44,8 @@ const client = props.client ?? createAnalysisClient()
 const modelConfig = useModelConfigStore()
 const roundStore = useAnalysisRoundStore()
 const state = ref<AnalysisState | null>(null)
-const busy = ref(false)
+type SubmitStatus = 'IDLE' | 'SAVING' | 'ANALYZING' | 'GENERATING_NEXT_ROUND'
+const submitStatus = ref<SubmitStatus>('IDLE')
 const loading = ref(true)
 const errorMessage = ref('')
 const completedMessage = ref('')
@@ -54,6 +56,11 @@ const sourceEditorOpen = ref(false)
 const originalPromptDraft = ref('')
 const sourceSaving = ref(false)
 const sourceError = ref('')
+const analysisProgressMessage = ref('')
+const analysisStartTime = ref(0)
+const analysisTimedOut = ref(false)
+let analysisTimer: ReturnType<typeof setTimeout> | null = null
+const ANALYSIS_TIMEOUT_MS = 120_000
 
 // Round-driven: use store state instead of batch-based grouping
 const currentRoundQuestions = computed(() => roundStore.currentRoundQuestions)
@@ -66,13 +73,16 @@ const originalPromptExcerpt = computed(() => {
   if (!text) return ''
   return text.length > 120 ? `${text.slice(0, 120)}...` : text
 })
-const canSubmitSupplement = computed(() => Boolean(supplementalIdea.value.trim()) && !busy.value)
-const canRetrySavedAnswers = computed(() => Boolean(state.value?.answers.length) && !busy.value)
+const isIdle = computed(() => submitStatus.value === 'IDLE')
+const canSubmitSupplement = computed(() => Boolean(supplementalIdea.value.trim()) && isIdle.value)
+const canRetrySavedAnswers = computed(() => Boolean(state.value?.answers.length) && isIdle.value)
 const needsModelSetup = computed(() => isModelSetupErrorMessage(errorMessage.value))
 const hasGenerationError = computed(() => roundStore.generationError !== null)
 // 首次AI分析成功后即可生成PRD；完整度和冲突只做提示，不阻塞生成
-const canGeneratePrd = computed(() => Boolean(state.value)
-  && (state.value.requirements.length > 0 || state.value.questions.length > 0))
+const canGeneratePrd = computed(() => {
+  const s = state.value
+  return s !== null && (s.requirements.length > 0 || s.questions.length > 0)
+})
 const needsMoreClarification = computed(() => Boolean(state.value) && !canGeneratePrd.value)
 const completionTitle = computed(() => {
   if (canGeneratePrd.value) return '关键信息已达到生成条件，可以生成PRD'
@@ -90,11 +100,7 @@ const completionDescription = computed(() => {
   }
   return '系统会继续生成下一轮问题来补齐关键需求。'
 })
-const followUpStatusMessage = computed(() =>
-  roundStore.isLoadingNextRound
-    ? 'AI 正在后台生成下一轮问题，生成完成后会直接显示在当前页面。'
-    : ''
-)
+const generatingNextRound = computed(() => roundStore.isLoadingNextRound && submitStatus.value !== 'ANALYZING')
 
 onMounted(async () => {
   try {
@@ -118,7 +124,7 @@ onMounted(async () => {
     loading.value = false
   }
 })
-onBeforeUnmount(() => client.cancel())
+onBeforeUnmount(() => { stopAnalysisTimer(); client.cancel() })
 
 watch(currentRoundKey, async (value, oldValue) => {
   if (!value || !oldValue || value === oldValue) return
@@ -126,8 +132,24 @@ watch(currentRoundKey, async (value, oldValue) => {
   currentBatchAnchor.value?.scrollIntoView?.({ block: 'start', behavior: 'smooth' })
 }, { flush: 'post' })
 
+function startAnalysisTimer() {
+  stopAnalysisTimer()
+  analysisTimedOut.value = false
+  analysisTimer = setTimeout(() => { analysisTimedOut.value = true }, ANALYSIS_TIMEOUT_MS)
+}
+function stopAnalysisTimer() {
+  if (analysisTimer !== null) { clearTimeout(analysisTimer); analysisTimer = null }
+}
+function cancelAnalysis() {
+  stopAnalysisTimer()
+  client.cancel()
+  submitStatus.value = 'IDLE'
+  analysisProgressMessage.value = ''
+  errorMessage.value = '已取消本次提交，可以重新回答或提交。'
+}
+
 async function submit(drafts: QuestionAnswerDraft[]) {
-  if (!state.value || busy.value) return
+  if (!state.value || submitStatus.value !== 'IDLE') return
   const settings = props.modelSettings ?? requestModelSettings()
   const validation = validateAnalysisModelSettings(settings)
   if (validation) {
@@ -135,7 +157,8 @@ async function submit(drafts: QuestionAnswerDraft[]) {
     completedMessage.value = ''
     return
   }
-  busy.value = true; errorMessage.value = ''; completedMessage.value = ''
+  submitStatus.value = 'SAVING'; errorMessage.value = ''; completedMessage.value = ''
+  analysisProgressMessage.value = ''; analysisTimedOut.value = false
   try {
     // 1. Persist answers to IndexedDB immediately
     const persisted = await clarification.submitBatch(projectId.value, drafts)
@@ -143,43 +166,57 @@ async function submit(drafts: QuestionAnswerDraft[]) {
     state.value = localState
     completedMessage.value = '回答已保存'
 
-    // 2. Send answers to backend and wait for processing result
+    // 2. Send ONLY current batch answers to backend with SSE progress callbacks
+    submitStatus.value = 'ANALYZING'
+    analysisStartTime.value = Date.now()
+    startAnalysisTimer()
+
     const finalState = await client.submitAnswers({
       state: toServerState(localState),
-      answers: toAnswerTurns(localState.questions, localState.answers),
+      answers: toAnswerTurns(persisted.questions, persisted.answers),
       originalInput: originalProjectInput(localState),
       missingInformation: localState.requirements.filter(item => item.type === 'MISSING_INFORMATION').map(item => item.content),
       modelSettings: settings,
+    }, {
+      onEvent: (event) => {
+        if (event.type === 'analysis_progress') {
+          analysisProgressMessage.value = String(event.data.message)
+        }
+      },
     })
+
+    stopAnalysisTimer()
 
     // 3. Save the returned state before generating next round
     const savedState = await stateStore.saveFinal(projectId.value, finalState)
     state.value = savedState
-    // Restore pre-generated future-round questions that saveFinal's wholesale delete removed
     await repersistFutureRoundQuestions()
     notifyAnalysisStateSaved()
 
-    // 4. Mark downstream rounds as stale, then trigger pre-generation with updated state
+    // 4. Mark downstream rounds as stale, then trigger pre-generation
     await roundStore.markDownstreamStale(roundStore.currentRoundNo)
 
-    // Pre-generation is only triggered AFTER user actions (submit / supplement / retry),
-    // never on page load. This avoids wasting API quota on rounds the user never reaches.
-    completedMessage.value = '回答已保存，正在生成下一轮问题...'
-    busy.value = false
+    completedMessage.value = '回答已保存'
+    submitStatus.value = 'GENERATING_NEXT_ROUND'
     void triggerPreGeneration()
   } catch (error) {
+    stopAnalysisTimer()
     errorMessage.value = readableError(error)
-    busy.value = false
+    submitStatus.value = 'IDLE'
   }
 }
 
 /** Triggers background pre-generation of the next round (N+1). */
 async function triggerPreGeneration() {
-  if (!state.value) return
+  if (!state.value) {
+    if (submitStatus.value === 'GENERATING_NEXT_ROUND') submitStatus.value = 'IDLE'
+    return
+  }
   const nextRoundNo = roundStore.currentRoundNo + 1
   const requestId = crypto.randomUUID()
 
   if (!roundStore.shouldStartGeneration(nextRoundNo, requestId)) {
+    if (submitStatus.value === 'GENERATING_NEXT_ROUND') submitStatus.value = 'IDLE'
     return
   }
 
@@ -247,12 +284,13 @@ async function triggerPreGeneration() {
     roundStore.markGenerationFailed(nextRoundNo,
       error instanceof Error ? error.message : 'Generation failed')
     console.warn('Background round pre-generation failed for round', nextRoundNo, error)
-    // Don't show to user — this is background work
+  } finally {
+    if (submitStatus.value === 'GENERATING_NEXT_ROUND') submitStatus.value = 'IDLE'
   }
 }
 
 async function submitSupplement() {
-  if (!state.value || busy.value) return
+  if (!state.value || submitStatus.value !== 'IDLE') return
   const supplementalInput = supplementalIdea.value.trim()
   if (!supplementalInput) {
     errorMessage.value = '补充想法不能为空。'
@@ -265,18 +303,26 @@ async function submitSupplement() {
     completedMessage.value = ''
     return
   }
-  busy.value = true; errorMessage.value = ''; completedMessage.value = ''
+  submitStatus.value = 'ANALYZING'; errorMessage.value = ''; completedMessage.value = ''
+  analysisProgressMessage.value = ''; analysisTimedOut.value = false
+  startAnalysisTimer()
   try {
     const finalState = await client.submitAnswers({
       state: toServerState(state.value),
-      answers: toAnswerTurns(state.value.questions, state.value.answers),
+      answers: [], // supplemental has no batch answers — state carries all history
       originalInput: originalProjectInput(state.value),
       supplementalInput,
       missingInformation: state.value.requirements.filter(item => item.type === 'MISSING_INFORMATION').map(item => item.content),
       modelSettings: settings,
+    }, {
+      onEvent: (event) => {
+        if (event.type === 'analysis_progress') {
+          analysisProgressMessage.value = String(event.data.message)
+        }
+      },
     })
 
-    // Save the returned state before generating new round
+    stopAnalysisTimer()
     const savedState = await stateStore.saveFinal(projectId.value, finalState)
     state.value = savedState
     await repersistFutureRoundQuestions()
@@ -286,41 +332,51 @@ async function submitSupplement() {
     supplementOpen.value = false
     completedMessage.value = 'AI 已根据补充想法更新需求。'
 
-    // Mark downstream stale then trigger new round generation with updated context
     await roundStore.markDownstreamStale(roundStore.currentRoundNo)
+    submitStatus.value = 'GENERATING_NEXT_ROUND'
     void triggerPreGeneration()
-  } catch (error) { errorMessage.value = readableError(error) }
-  finally { busy.value = false }
+  } catch (error) { stopAnalysisTimer(); errorMessage.value = readableError(error); submitStatus.value = 'IDLE' }
 }
 
 async function retrySavedAnswers() {
-  if (!state.value || busy.value) return
+  if (!state.value || submitStatus.value !== 'IDLE') return
   const settings = props.modelSettings ?? requestModelSettings()
   const validation = validateAnalysisModelSettings(settings)
   if (validation) {
     errorMessage.value = validation
     return
   }
-  busy.value = true; errorMessage.value = ''; completedMessage.value = ''
+  submitStatus.value = 'ANALYZING'; errorMessage.value = ''; completedMessage.value = ''
+  analysisProgressMessage.value = ''; analysisTimedOut.value = false
+  startAnalysisTimer()
   try {
+    // retry sends ALL saved answers — error recovery needs full history context
     const finalState = await client.submitAnswers({
       state: toServerState(state.value),
       answers: toAnswerTurns(state.value.questions, state.value.answers),
       originalInput: originalProjectInput(state.value),
       missingInformation: state.value.requirements.filter(item => item.type === 'MISSING_INFORMATION').map(item => item.content),
       modelSettings: settings,
+    }, {
+      onEvent: (event) => {
+        if (event.type === 'analysis_progress') {
+          analysisProgressMessage.value = String(event.data.message)
+        }
+      },
     })
+    stopAnalysisTimer()
     const savedState = await stateStore.saveFinal(projectId.value, finalState)
     state.value = savedState
     await repersistFutureRoundQuestions()
     notifyAnalysisStateSaved()
     await roundStore.markDownstreamStale(roundStore.currentRoundNo)
-    completedMessage.value = '回答已保存，正在生成下一轮问题...'
-    busy.value = false
+    completedMessage.value = '回答已保存'
+    submitStatus.value = 'GENERATING_NEXT_ROUND'
     void triggerPreGeneration()
   } catch (error) {
+    stopAnalysisTimer()
     errorMessage.value = readableError(error)
-    busy.value = false
+    submitStatus.value = 'IDLE'
   }
 }
 
@@ -422,7 +478,7 @@ async function generatePrdFromCurrentAnswers(drafts: QuestionAnswerDraft[]) {
     goToPrd()
     return
   }
-  if (!state.value || busy.value) return
+  if (!state.value || submitStatus.value !== 'IDLE') return
   const settings = props.modelSettings ?? requestModelSettings()
   const validation = validateAnalysisModelSettings(settings)
   if (validation) {
@@ -430,19 +486,19 @@ async function generatePrdFromCurrentAnswers(drafts: QuestionAnswerDraft[]) {
     completedMessage.value = ''
     return
   }
-  busy.value = true; errorMessage.value = ''; completedMessage.value = ''
+  submitStatus.value = 'SAVING'; errorMessage.value = ''; completedMessage.value = ''
   try {
     const persisted = await clarification.submitBatch(projectId.value, drafts)
     const localState = mergePersistedAnswers(state.value, persisted)
     state.value = localState
     try {
-      await requestFollowUp(
-        localState,
-        settings,
-        undefined,
-        'AI 已根据回答更新需求，正在进入 PRD。',
-        'AI 已根据回答更新需求，正在进入 PRD。',
-      )
+      await client.submitAnswers({
+        state: toServerState(localState),
+        answers: toAnswerTurns(persisted.questions, persisted.answers),
+        originalInput: originalProjectInput(localState),
+        missingInformation: localState.requirements.filter(item => item.type === 'MISSING_INFORMATION').map(item => item.content),
+        modelSettings: settings,
+      })
     } catch (error) {
       errorMessage.value = `本轮回答已保存，但 AI 整理失败：${readableError(error)}`
     }
@@ -450,7 +506,7 @@ async function generatePrdFromCurrentAnswers(drafts: QuestionAnswerDraft[]) {
   } catch (error) {
     errorMessage.value = readableError(error)
   } finally {
-    busy.value = false
+    submitStatus.value = 'IDLE'
   }
 }
 
@@ -466,23 +522,24 @@ function goToModelSettings() {
     <template v-else>
       <div v-if="errorMessage" class="wizard-view__error" role="alert">
         <span>{{ errorMessage }}</span>
-        <button v-if="canRetrySavedAnswers" type="button" class="button-primary" :disabled="busy" @click="retrySavedAnswers">
-          {{ busy ? '正在重新提交…' : '重新提交已保存回答' }}
+        <button v-if="canRetrySavedAnswers" type="button" class="button-primary" :disabled="!isIdle" @click="retrySavedAnswers">
+          {{ !isIdle ? '正在重新提交…' : '重新提交已保存回答' }}
         </button>
         <button v-if="needsModelSetup" type="button" class="button-primary" @click="goToModelSettings">前往模型设置</button>
       </div>
-      <div v-if="completedMessage" class="wizard-view__success">{{ completedMessage }}</div>
-      <div v-if="roundStore.isLoadingNextRound && !busy" class="wizard-view__notice" role="status">{{ followUpStatusMessage }}</div>
+      <div v-if="generatingNextRound" class="wizard-view__notice" role="status">正在生成下一轮问题…</div>
+      <div v-else-if="completedMessage" class="wizard-view__success">{{ completedMessage }}</div>
       <div v-if="hasGenerationError" class="wizard-view__error" role="alert">
         <span>{{ roundStore.generationError }}</span>
         <button type="button" class="button-primary" @click="retryFailedGeneration">重新生成</button>
       </div>
       <!-- Round header -->
       <section v-if="currentRoundQuestions.length" ref="currentBatchAnchor" class="wizard-view__intro">
-        <div>
-          <span>AI 需求访谈</span>
-          <h1>第 {{ roundStore.currentRoundNo }} 轮 · 共 {{ currentRoundQuestions.length }} 题</h1>
-          <p>AI 已读取你的初始需求，并把当前最值得确认的问题放在同一轮。每轮 8-10 题，提交后页面会切到下一轮。</p>
+        <div class="wizard-view__intro-top">
+          <div>
+            <span>AI 需求访谈</span>
+            <h1>第 {{ roundStore.currentRoundNo }} 轮 · 共 {{ currentRoundQuestions.length }} 题</h1>
+          </div>
           <button type="button" class="wizard-view__link-button" @click="openOriginalEditor">编辑原始需求</button>
         </div>
         <p v-if="originalPromptExcerpt" class="wizard-view__source">初始想法：{{ originalPromptExcerpt }}</p>
@@ -499,14 +556,15 @@ function goToModelSettings() {
       <QuestionBatch
         v-if="currentRoundQuestions.length"
         :questions="currentRoundQuestions"
-        :busy="busy"
-        :can-generate-prd="canGeneratePrd"
+        :submit-status="submitStatus"
         :round-no="roundStore.currentRoundNo"
+        :progress-message="analysisProgressMessage"
+        :timed-out="analysisTimedOut"
         @submit="submit"
-        @generate-prd="generatePrdFromCurrentAnswers"
+        @cancel="cancelAnalysis"
       />
       <!-- Skeleton loading -->
-      <QuestionSkeleton v-else-if="roundStore.isLoadingNextRound && !busy" :count="8" />
+      <QuestionSkeleton v-else-if="roundStore.isLoadingNextRound && submitStatus !== 'ANALYZING'" :count="8" />
       <!-- Empty / complete state -->
       <section v-else class="wizard-view__empty">
         <span>AI 需求访谈</span>
@@ -529,15 +587,15 @@ function goToModelSettings() {
             id="supplemental-idea"
             v-model="supplementalIdea"
             rows="5"
-            :disabled="busy"
+            :disabled="!isIdle"
             placeholder="例如：我还想补充退款、角色权限、页面状态或异常场景。"
             data-testid="supplemental-idea"
           ></textarea>
-          <p v-if="busy">AI 正在生成下一轮问题…</p>
+          <p v-if="!isIdle">AI 正在生成下一轮问题…</p>
           <div>
-            <button type="button" class="wizard-view__secondary" :disabled="busy" @click="supplementOpen = false">取消</button>
+            <button type="button" class="wizard-view__secondary" :disabled="!isIdle" @click="supplementOpen = false">取消</button>
             <button type="submit" class="button-primary" :disabled="!canSubmitSupplement" data-testid="submit-supplement">
-              {{ busy ? '正在生成…' : '提交补充想法' }}
+              {{ !isIdle ? '正在生成…' : '提交补充想法' }}
             </button>
           </div>
         </form>
@@ -577,6 +635,7 @@ function goToModelSettings() {
 .wizard-view { max-width: 900px; margin: 0 auto; }
 .wizard-view__status,.wizard-view__empty { padding: 46px; color: var(--color-text-secondary); text-align: center; }
 .wizard-view__intro { display: grid; gap: 12px; margin-bottom: 18px; }
+.wizard-view__intro-top { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
 .wizard-view__intro span,.wizard-view__empty span { color: var(--color-accent); font-size: 10px; font-weight: 750; }
 .wizard-view__intro h1 { margin: 5px 0 0; font-size: 26px; line-height: 1.25; }
 .wizard-view__intro p { margin: 7px 0 0; color: var(--color-text-secondary); font-size: 12px; line-height: 1.7; }

@@ -38,6 +38,8 @@ function question(projectId: string, index: number): ClarificationQuestion {
     id: `00000000-0000-4000-8000-${suffix}`, projectId,
     batchId: '20000000-0000-4000-8000-000000000000', text: `问题 ${index}`,
     reason: '测试', dimension: 'FEATURES', targetField: `field.${index}`, semanticKey: `q-${index}`,
+    roundNo: 1,
+    coverageCategories: [] as string[],
     inputType: 'TEXT', options: [], priority: 1, status: 'PENDING',
     createdAt: '2026-07-17T12:00:00.000Z', updatedAt: '2026-07-17T12:00:00.000Z',
   }

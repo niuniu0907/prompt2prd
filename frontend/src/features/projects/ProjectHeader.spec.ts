@@ -87,7 +87,7 @@ describe('ProjectHeader', () => {
 
     const button = wrapper.get('[data-testid="header-generate-prd"]')
     expect(button.attributes('disabled')).toBeDefined()
-    expect(wrapper.get('[data-testid="header-generate-hint"]').text()).toBe('首次 AI 解析完成后会进入 AI 澄清。')
+    expect(wrapper.find('[data-testid="header-generate-hint"]').exists()).toBe(false)
   })
 
   it('uses dark text on the primary button background', () => {

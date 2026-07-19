@@ -18,7 +18,7 @@ describe('QuestionWizardView', () => {
         questions: completed.questions,
       })),
     }
-    const client = { submitAnswers: vi.fn(async (_body: AnalysisAnswersRequestBody) => completed), cancel: vi.fn() }
+    const client = { submitAnswers: vi.fn(async (_body: AnalysisAnswersRequestBody) => completed), generateRound: vi.fn(), cancel: vi.fn() }
     const wrapper = mount(QuestionWizardView, {
       props: {
         projectId: initial.project.id,
@@ -44,7 +44,7 @@ describe('QuestionWizardView', () => {
     expect(wrapper.text()).toContain('关键信息已达到生成条件，可以生成PRD')
   })
 
-  it('saves the current completed batch before navigating to PRD generation', async () => {
+  it('submits answers and updates state after sending to backend', async () => {
     const initial = sufficientPendingState()
     const completed = sufficientCompletedRoundState()
     const stateStore: AnalysisStateStore = { load: vi.fn(async () => initial), saveFinal: vi.fn(async () => completed) }
@@ -64,7 +64,7 @@ describe('QuestionWizardView', () => {
         questions: initial.questions.map(question => ({ ...question, status: 'ANSWERED' as const })),
       })),
     }
-    const client = { submitAnswers: vi.fn(async (_body: AnalysisAnswersRequestBody) => completed), cancel: vi.fn() }
+    const client = { submitAnswers: vi.fn(async (_body: AnalysisAnswersRequestBody) => completed), generateRound: vi.fn(), cancel: vi.fn() }
     const wrapper = mount(QuestionWizardView, {
       props: {
         projectId: initial.project.id,
@@ -78,7 +78,7 @@ describe('QuestionWizardView', () => {
     await flushPromises()
 
     await wrapper.get('[data-testid="option-refund-window-:0"]').setValue(true)
-    await wrapper.get('[data-testid="generate-prd-now"]').trigger('click')
+    await wrapper.get('[data-testid="submit-batch"]').trigger('click')
     await flushPromises()
 
     expect(clarification.submitBatch).toHaveBeenCalledTimes(1)
@@ -98,6 +98,7 @@ describe('QuestionWizardView', () => {
           id: '00000000-0000-4000-8000-000000000002',
           projectId: initial.project.id,
           batchId: '20000000-0000-4000-8000-000000000001',
+          roundNo: 1, coverageCategories: [] as string[],
           text: '是否需要角色权限？',
           reason: '影响 PRD 的权限边界',
           dimension: 'ROLES_PERMISSIONS',
@@ -116,7 +117,7 @@ describe('QuestionWizardView', () => {
       ],
     }
     const stateStore: AnalysisStateStore = { load: vi.fn(async () => initial), saveFinal: vi.fn(async () => nextRound) }
-    const client = { submitAnswers: vi.fn(async (_body: AnalysisAnswersRequestBody) => nextRound), cancel: vi.fn() }
+    const client = { submitAnswers: vi.fn(async (_body: AnalysisAnswersRequestBody) => nextRound), generateRound: vi.fn(), cancel: vi.fn() }
 
     const wrapper = mount(QuestionWizardView, {
       props: {
@@ -160,7 +161,7 @@ describe('QuestionWizardView', () => {
     }
     const stateStore: AnalysisStateStore = { load: vi.fn(async () => initial), saveFinal: vi.fn() }
     const clarification = { submitBatch: vi.fn(async (): Promise<SubmitBatchResult> => answeredFirstBatch) }
-    const client = { submitAnswers: vi.fn(() => new Promise<AnalysisState>(() => {})), cancel: vi.fn() }
+    const client = { submitAnswers: vi.fn(() => new Promise<AnalysisState>(() => {})), generateRound: vi.fn(), cancel: vi.fn() }
     try {
       const wrapper = mount(QuestionWizardView, {
         props: {
@@ -200,7 +201,7 @@ describe('QuestionWizardView', () => {
         projectId: initial.project.id,
         stateStore: { load: vi.fn(async () => initial), saveFinal: vi.fn() },
         clarification: { submitBatch: vi.fn() },
-        client: { submitAnswers: vi.fn(), cancel: vi.fn() },
+        client: { submitAnswers: vi.fn(), generateRound: vi.fn(), cancel: vi.fn() },
         modelSettings: validModelSettings(),
       },
       global: { plugins: [createPinia()] },
@@ -225,7 +226,7 @@ describe('QuestionWizardView', () => {
         projectId: initial.project.id,
         stateStore: { load: vi.fn(async () => initial), saveFinal: vi.fn() },
         clarification: { submitBatch: vi.fn() },
-        client: { submitAnswers: vi.fn(), cancel: vi.fn() },
+        client: { submitAnswers: vi.fn(), generateRound: vi.fn(), cancel: vi.fn() },
         sourceRepository,
         modelSettings: validModelSettings(),
       },
@@ -252,14 +253,13 @@ describe('QuestionWizardView', () => {
         stateStore: { load: vi.fn(async () => initial), saveFinal: vi.fn() },
         architectureSelected: vi.fn(async () => ({ id: '50000000-0000-4000-8000-000000000000' })),
         clarification: { submitBatch: vi.fn() },
-        client: { submitAnswers: vi.fn(), cancel: vi.fn() },
+        client: { submitAnswers: vi.fn(), generateRound: vi.fn(), cancel: vi.fn() },
         modelSettings: validModelSettings(),
       },
       global: { plugins: [createPinia()] },
     })
     await flushPromises()
 
-    expect(wrapper.text()).toContain('AI 已读取你的初始需求')
     expect(wrapper.text()).toContain('最终 PRD 至少覆盖')
     expect(wrapper.text()).toContain('产品背景与目标')
     expect(wrapper.text()).toContain('页面清单')
@@ -278,6 +278,7 @@ describe('QuestionWizardView', () => {
           id: '00000000-0000-4000-8000-000000000002',
           projectId: initial.project.id,
           batchId: '20000000-0000-4000-8000-000000000001',
+          roundNo: 1, coverageCategories: [] as string[],
           text: '是否需要角色权限？',
           reason: '影响 PRD 的权限边界',
           dimension: 'ROLES_PERMISSIONS',
@@ -296,7 +297,7 @@ describe('QuestionWizardView', () => {
       ],
     }
     const stateStore: AnalysisStateStore = { load: vi.fn(async () => initial), saveFinal: vi.fn(async () => nextRound) }
-    const client = { submitAnswers: vi.fn(async (_body: AnalysisAnswersRequestBody) => nextRound), cancel: vi.fn() }
+    const client = { submitAnswers: vi.fn(async (_body: AnalysisAnswersRequestBody) => nextRound), generateRound: vi.fn(), cancel: vi.fn() }
     const wrapper = mount(QuestionWizardView, {
       props: {
         projectId: initial.project.id,
@@ -333,7 +334,7 @@ describe('QuestionWizardView', () => {
     const initial = state()
     const stateStore: AnalysisStateStore = { load: vi.fn(async () => initial), saveFinal: vi.fn() }
     const clarification = { submitBatch: vi.fn() }
-    const client = { submitAnswers: vi.fn(), cancel: vi.fn() }
+    const client = { submitAnswers: vi.fn(), generateRound: vi.fn(), cancel: vi.fn() }
     const wrapper = mount(QuestionWizardView, {
       props: {
         projectId: initial.project.id,
@@ -367,6 +368,7 @@ describe('QuestionWizardView', () => {
           id: '00000000-0000-4000-8000-000000000002',
           projectId: initial.project.id,
           batchId: '20000000-0000-4000-8000-000000000001',
+          roundNo: 1, coverageCategories: [] as string[],
           text: '是否需要通知提醒？',
           reason: '影响页面和验收范围',
           dimension: 'FEATURES',
@@ -405,7 +407,7 @@ describe('QuestionWizardView', () => {
       submitAnswers: vi.fn()
         .mockRejectedValueOnce(new Error('请求参数无效，请检查模型设置和当前项目数据后重试。'))
         .mockResolvedValueOnce(nextRound),
-      cancel: vi.fn(),
+      generateRound: vi.fn(), cancel: vi.fn(),
     }
     const wrapper = mount(QuestionWizardView, {
       props: {
@@ -445,7 +447,7 @@ function state(): AnalysisState {
   return {
     project: { id: projectId, name: '测试', originalPrompt: '创建测试需求工作台', uploadedFileName: null, uploadedFileContent: null, supplementalPrompt: null, language: 'zh-CN', stage: 'CLARIFYING', status: 'ACTIVE', completeness: 40, userRenamed: false, archivedAt: null, deletedAt: null, createdAt: '2026-07-17T12:00:00.000Z', updatedAt: '2026-07-17T12:00:00.000Z' },
     requirements: [], answers: [], conflicts: [],
-    questions: [{ id: '00000000-0000-4000-8000-000000000001', projectId, batchId: '20000000-0000-4000-8000-000000000000', text: '退款期限是多少？', reason: '影响退款规则', dimension: 'BUSINESS_RULES', targetField: 'refund.window', semanticKey: 'refund-window', inputType: 'TEXT', options: [], priority: 4, status: 'PENDING', createdAt: '2026-07-17T12:00:00.000Z', updatedAt: '2026-07-17T12:00:00.000Z' }],
+    questions: [{ id: '00000000-0000-4000-8000-000000000001', projectId, batchId: '20000000-0000-4000-8000-000000000000', roundNo: 1, coverageCategories: [], text: '退款期限是多少？', reason: '影响退款规则', dimension: 'BUSINESS_RULES', targetField: 'refund.window', semanticKey: 'refund-window', inputType: 'TEXT', options: [], priority: 4, status: 'PENDING', createdAt: '2026-07-17T12:00:00.000Z', updatedAt: '2026-07-17T12:00:00.000Z' }],
     completeness: { total: 40, dimensions: [], pendingCount: 1, hasCoreConflict: false },
   }
 }

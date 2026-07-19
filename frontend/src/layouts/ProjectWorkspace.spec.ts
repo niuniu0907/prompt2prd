@@ -124,6 +124,7 @@ function pendingStateStore(): AnalysisStateStore {
           id: '30000000-0000-4000-8000-000000000001',
           projectId: project.id,
           batchId: '30000000-0000-4000-8000-000000000002',
+          roundNo: 1, coverageCategories: [] as string[],
           text: '是否需要支付？',
           reason: '影响订单闭环',
           dimension: 'BUSINESS_RULES',
@@ -186,6 +187,7 @@ function roundCompletedStateStore(): AnalysisStateStore {
           id: '30000000-0000-4000-8000-000000000003',
           projectId: project.id,
           batchId: '30000000-0000-4000-8000-000000000004',
+          roundNo: 1, coverageCategories: [] as string[],
           text: '是否需要支付？',
           reason: '影响订单闭环',
           dimension: 'BUSINESS_RULES',
@@ -440,7 +442,7 @@ describe('ProjectWorkspace', () => {
 
     expect(wrapper.text()).toContain('需求完整度：12%')
     expect(wrapper.get('[data-testid="header-generate-prd"]').attributes('disabled')).toBeDefined()
-    expect(wrapper.get('[data-testid="header-generate-hint"]').text()).toBe('首次 AI 解析完成后会进入 AI 澄清。')
+    expect(wrapper.find('[data-testid="header-generate-hint"]').exists()).toBe(false)
   })
 
   it('keeps clarification on the AI clarification page after a round is answered', async () => {

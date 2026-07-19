@@ -6,13 +6,14 @@ import { emptyAnswer, type QuestionAnswerDraft } from './answerTypes'
 
 const props = withDefaults(defineProps<{
   questions: ClarificationQuestion[]
-  busy?: boolean
-  canGeneratePrd?: boolean
+  submitStatus?: string
   roundNo?: number
-}>(), { busy: false, canGeneratePrd: false, roundNo: 1 })
+  progressMessage?: string
+  timedOut?: boolean
+}>(), { submitStatus: 'IDLE', roundNo: 1, progressMessage: '', timedOut: false })
 const emit = defineEmits<{
   submit: [answers: QuestionAnswerDraft[]]
-  generatePrd: [answers: QuestionAnswerDraft[]]
+  cancel: []
 }>()
 const drafts = reactive<Record<string, QuestionAnswerDraft>>({})
 
@@ -24,10 +25,15 @@ function answered(draft: QuestionAnswerDraft | undefined) {
 }
 const answeredCount = computed(() => props.questions.filter(question => answered(drafts[question.id])).length)
 const allAnswered = computed(() => props.questions.length > 0 && answeredCount.value === props.questions.length)
-const canSubmit = computed(() => allAnswered.value && !props.busy)
-const canGeneratePrd = computed(() => props.canGeneratePrd && !props.busy && (answeredCount.value === 0 || allAnswered.value))
+const isIdle = computed(() => props.submitStatus === 'IDLE')
+const isSaving = computed(() => props.submitStatus === 'SAVING')
+const isAnalyzing = computed(() => props.submitStatus === 'ANALYZING')
+const isGenerating = computed(() => props.submitStatus === 'GENERATING_NEXT_ROUND')
+const canSubmit = computed(() => allAnswered.value && isIdle.value)
+const canSkip = computed(() => isIdle.value)
+
 function submit(skipAll = false) {
-  if (props.busy) return
+  if (!isIdle.value) return
   if (!props.questions.length) return
   if (skipAll) {
     emit('submit', props.questions.map(question => ({ ...emptyAnswer(question.id), skipped: true })))
@@ -36,15 +42,8 @@ function submit(skipAll = false) {
   if (!allAnswered.value) return
   emit('submit', props.questions.map(question => ({ ...drafts[question.id]! })))
 }
-function generatePrd() {
-  if (!canGeneratePrd.value) return
-  const answers = allAnswered.value
-    ? props.questions.map(question => ({ ...drafts[question.id]! }))
-    : []
-  emit('generatePrd', answers)
-}
 function adoptSuggestion() {
-  if (!props.questions.length || props.busy) return
+  if (!props.questions.length || !isIdle.value) return
   for (const question of props.questions) {
     const selected = question.options.filter(option => option.recommended)
     const fallback = selected.length ? selected : question.options.slice(0, 1)
@@ -57,6 +56,13 @@ function adoptSuggestion() {
     }
   }
 }
+
+const submitButtonLabel = computed(() => {
+  if (isSaving.value) return '保存中…'
+  if (isAnalyzing.value) return 'AI整理中…'
+  if (isGenerating.value) return '正在生成下一轮…'
+  return '提交并继续'
+})
 </script>
 
 <template>
@@ -66,7 +72,7 @@ function adoptSuggestion() {
         <span>第 {{ roundNo }} 轮 · 已回答 {{ answeredCount }}/{{ questions.length }}</span>
         <h1>一次回答完本轮问题</h1>
       </div>
-      <p>可以选择选项、填写补充、采用 AI 建议或跳过本轮。每轮 8-10 题。</p>
+      <button data-testid="adopt-suggestion" type="button" class="question-batch__adopt" :disabled="!isIdle || !questions.length" @click="adoptSuggestion">采用AI建议</button>
     </header>
     <QuestionCard
       v-for="(question, index) in questions"
@@ -74,20 +80,18 @@ function adoptSuggestion() {
       :question="question"
       :index="index"
       :model-value="drafts[question.id]!"
-      :disabled="busy"
+      :disabled="!isIdle"
       @update:model-value="setDraft(question.id, $event)"
     />
     <footer>
-      <p v-if="answeredCount > 0 && !allAnswered">请回答或跳过本轮全部问题，再提交给 AI 继续追问。</p>
-      <p v-else-if="!allAnswered">请回答或跳过本轮全部问题，未提交前 AI 建议不会变成已确认需求。</p>
-      <p v-else>本轮问题已准备好，将一次提交给 AI 整理。</p>
+      <div class="question-batch__status">
+        <span v-if="progressMessage && isAnalyzing" class="question-batch__progress">{{ progressMessage }}</span>
+        <span v-if="timedOut && isAnalyzing" class="question-batch__timeout">AI整理时间较长，可以继续等待或取消后重试。</span>
+      </div>
       <div class="question-batch__actions">
-        <button data-testid="skip-batch" type="button" :disabled="busy" @click="submit(true)">跳过本轮</button>
-        <button data-testid="adopt-suggestion" type="button" :disabled="busy || !questions.length" @click="adoptSuggestion">采用AI建议</button>
-        <button data-testid="submit-batch" class="button-primary" type="button" :disabled="!canSubmit" @click="submit(false)">{{ busy ? '正在提交…' : '提交并继续' }}</button>
-        <button v-if="props.canGeneratePrd" data-testid="generate-prd-now" type="button" :disabled="!canGeneratePrd" @click="generatePrd">
-          {{ allAnswered ? '提交并生成PRD' : '生成PRD' }}
-        </button>
+        <button v-if="timedOut && isAnalyzing" data-testid="cancel-analysis" type="button" class="question-batch__cancel" @click="emit('cancel')">取消</button>
+        <button data-testid="skip-batch" type="button" class="question-batch__skip" :disabled="!canSkip" @click="submit(true)">跳过本轮</button>
+        <button data-testid="submit-batch" class="button-primary" type="button" :disabled="!canSubmit" @click="submit(false)">{{ submitButtonLabel }}</button>
       </div>
     </footer>
   </section>
@@ -98,10 +102,15 @@ function adoptSuggestion() {
 .question-batch__heading { display: flex; align-items: end; justify-content: space-between; gap: 20px; margin-bottom: 4px; }
 .question-batch__heading span { color: var(--color-accent); font-size: 10px; font-weight: 750; }
 .question-batch__heading h1 { margin: 5px 0 0; font-size: 22px; }
-.question-batch__heading p { color: var(--color-text-secondary); font-size: 11px; }
+.question-batch__adopt { min-height: 34px; padding: 0 12px; border-radius: 8px; color: var(--color-text-secondary); background: var(--color-surface); border: 1px solid var(--color-border); cursor: pointer; font-size: 12px; white-space: nowrap; }
+.question-batch__adopt:disabled { color: var(--color-text-muted); cursor: not-allowed; }
 .question-batch__actions { display: flex; justify-content: flex-end; gap: 12px; }
-footer { position: sticky; bottom: 0; display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 0 18px; background: var(--color-background); }
-footer p { margin: 0; color: var(--color-text-secondary); font-size: 11px; }
-.question-batch__actions button { min-height: 34px; padding: 0 12px; border-radius: 8px; color: var(--color-text-secondary); background: var(--color-surface); border: 1px solid var(--color-border); cursor: pointer; }
-.question-batch__actions button:disabled { color: var(--color-text-muted); cursor: not-allowed; }
+.question-batch__status { flex: 1; display: flex; align-items: center; gap: 12px; min-width: 0; }
+.question-batch__progress { color: var(--color-text-secondary); font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.question-batch__timeout { color: #b85c1a; font-size: 11px; }
+.question-batch__cancel { min-height: 34px; padding: 0 12px; border-radius: 8px; color: #873f3f; background: transparent; border: 1px solid #e2bcbc; cursor: pointer; font-size: 12px; }
+footer { position: sticky; bottom: 0; display: flex; align-items: center; justify-content: flex-end; gap: 12px; padding: 12px 0 18px; background: var(--color-background); }
+.question-batch__actions button { min-height: 34px; padding: 0 12px; border-radius: 8px; cursor: pointer; }
+.question-batch__skip { color: var(--color-text-secondary); background: transparent; border: 0; font-size: 12px; }
+.question-batch__skip:disabled { color: var(--color-text-muted); cursor: not-allowed; }
 </style>
