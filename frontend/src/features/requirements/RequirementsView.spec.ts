@@ -23,7 +23,13 @@ vi.mock('@/db/repositories/requirementRepository', () => ({
   requirementRepository: { commitManualEdit: vi.fn() },
 }))
 vi.mock('@/db/repositories/requirementInteractionRepository', () => ({
-  requirementInteractionRepository: { setLocked: vi.fn(), decideAssumption: vi.fn(), resolveConflict: vi.fn() },
+  requirementInteractionRepository: {
+    setLocked: vi.fn(),
+    decideAssumption: vi.fn(),
+    resolveConflict: vi.fn(),
+    confirmRequirement: vi.fn(),
+    rejectRequirement: vi.fn(),
+  },
 }))
 
 const project: Project = {
@@ -76,7 +82,66 @@ describe('RequirementsView', () => {
     expect(router.currentRoute.value.name).toBe('project-overview')
   })
 
-  it('opens optional flowchart generation from a selected complex requirement card', async () => {
+  it('displays requirements in a single-column grouped list', async () => {
+    loadState.mockResolvedValue({
+      project: { ...project, stage: 'CLARIFYING', completeness: 88 },
+      requirements: [feature(project.id), businessRule(project.id)],
+      questions: [],
+      answers: [],
+      conflicts: [],
+      completeness: { total: 88, dimensions: [], pendingCount: 0, hasCoreConflict: false },
+    } satisfies AnalysisState)
+    const router = createAppRouter(createMemoryHistory())
+    await router.push(`/projects/${project.id}/requirements`)
+    await router.isReady()
+
+    const wrapper = mount(RequirementsView, { global: { plugins: [router] } })
+    await flushPromises()
+
+    // Groups exist
+    expect(wrapper.text()).toContain('功能需求')
+    expect(wrapper.text()).toContain('业务规则')
+    // Requirements are listed
+    expect(wrapper.text()).toContain('订单支付')
+    expect(wrapper.text()).toContain('退款规则')
+  })
+
+  it('filters requirements by status when filter pill is clicked', async () => {
+    loadState.mockResolvedValue({
+      project: { ...project, stage: 'CLARIFYING', completeness: 88 },
+      requirements: [
+        feature(project.id),
+        { ...businessRule(project.id), status: 'CONFIRMED' as const },
+      ],
+      questions: [],
+      answers: [],
+      conflicts: [],
+      completeness: { total: 88, dimensions: [], pendingCount: 0, hasCoreConflict: false },
+    } satisfies AnalysisState)
+    const router = createAppRouter(createMemoryHistory())
+    await router.push(`/projects/${project.id}/requirements`)
+    await router.isReady()
+
+    const wrapper = mount(RequirementsView, { global: { plugins: [router] } })
+    await flushPromises()
+
+    // Both show initially
+    expect(wrapper.text()).toContain('订单支付')
+    expect(wrapper.text()).toContain('退款规则')
+
+    // Click "已确认" filter
+    const pills = wrapper.findAll('.status-filter__pill')
+    const confirmedPill = pills.find(p => p.text().includes('已确认'))
+    expect(confirmedPill).toBeTruthy()
+    await confirmedPill!.trigger('click')
+    await flushPromises()
+
+    // Only confirmed shows
+    expect(wrapper.text()).toContain('退款规则')
+    expect(wrapper.text()).not.toContain('订单支付')
+  })
+
+  it('opens detail drawer on view button click', async () => {
     loadState.mockResolvedValue({
       project: { ...project, stage: 'CLARIFYING', completeness: 88 },
       requirements: [feature(project.id)],
@@ -92,11 +157,41 @@ describe('RequirementsView', () => {
     const wrapper = mount(RequirementsView, { global: { plugins: [router] } })
     await flushPromises()
 
-    await wrapper.get('[data-testid="generate-flowchart"]').trigger('click')
+    // Click view button
+    const viewBtn = wrapper.find('.btn-text')
+    expect(viewBtn.exists()).toBe(true)
+    await viewBtn.trigger('click')
     await flushPromises()
 
-    expect(router.currentRoute.value.name).toBe('project-flowchart')
-    expect(router.currentRoute.value.query.requirementId).toBe('60000000-0000-4000-8000-000000000000')
+    // Drawer should be open
+    const drawer = wrapper.findComponent({ name: 'RequirementDetailDrawer' })
+    expect(drawer.props('visible')).toBe(true)
+  })
+
+  it('shows conflict warning bar when open conflicts exist', async () => {
+    loadState.mockResolvedValue({
+      project: { ...project, stage: 'CLARIFYING', completeness: 88 },
+      requirements: [feature(project.id)],
+      questions: [],
+      answers: [],
+      conflicts: [{
+        id: 'cf-1', projectId: project.id,
+        leftRequirementId: feature(project.id).id,
+        rightRequirementId: null,
+        leftContent: '人工审核', rightContent: '自动审核',
+        impact: '影响审核流程', core: true, status: 'OPEN', resolution: null,
+        createdAt: project.createdAt, updatedAt: project.updatedAt, resolvedAt: null,
+      }],
+      completeness: { total: 88, dimensions: [], pendingCount: 0, hasCoreConflict: true },
+    } satisfies AnalysisState)
+    const router = createAppRouter(createMemoryHistory())
+    await router.push(`/projects/${project.id}/requirements`)
+    await router.isReady()
+
+    const wrapper = mount(RequirementsView, { global: { plugins: [router] } })
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('存在未解决的核心冲突')
   })
 })
 
@@ -127,8 +222,25 @@ function feature(projectId: string): RequirementItem {
     type: 'FEATURE',
     title: '订单支付',
     content: '用户提交订单后完成在线支付',
-    status: 'CONFIRMED',
+    status: 'PENDING',
     sourceType: 'USER_ANSWER',
+    sourceId: null,
+    locked: false,
+    metadata: {},
+    createdAt: project.createdAt,
+    updatedAt: project.updatedAt,
+  }
+}
+
+function businessRule(projectId: string): RequirementItem {
+  return {
+    id: '70000000-0000-4000-8000-000000000000',
+    projectId,
+    type: 'BUSINESS_RULE',
+    title: '退款规则',
+    content: '用户可在7天内申请退款',
+    status: 'PENDING',
+    sourceType: 'AI_INFERENCE',
     sourceId: null,
     locked: false,
     metadata: {},

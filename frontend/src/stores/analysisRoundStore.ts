@@ -1,0 +1,307 @@
+import { computed, ref } from 'vue'
+import { defineStore } from 'pinia'
+import type { ClarificationQuestion, ClarificationRound, ClarificationRoundStatus } from '@/features/requirements/types'
+import { appDatabase, type AppDatabase } from '@/db/appDatabase'
+
+interface GenerationRequest {
+  roundNo: number
+  requestId: string
+  contextVersion: number
+}
+
+interface RoundPersistenceState {
+  currentRoundNo: number
+  readyNextRoundNo: number | null
+  coveredAreas: string[]
+  pendingAreas: string[]
+  contextVersion: number
+}
+
+export const useAnalysisRoundStore = defineStore('analysisRound', () => {
+  // --- Core state ---
+  const currentRoundNo = ref(1)
+  const readyNextRoundNo = ref<number | null>(null)
+  const generatingRoundNo = ref<number | null>(null)
+  const generationRequestId = ref<string | null>(null)
+  const contextVersion = ref(0)
+  const generationError = ref<string | null>(null)
+
+  // Round questions: roundNo -> questions
+  const allQuestions = ref<Map<number, ClarificationQuestion[]>>(new Map())
+
+  // Coverage tracking
+  const coveredAreas = ref<Set<string>>(new Set())
+  const pendingAreas = ref<string[]>([])
+  const staleRounds = ref<Set<number>>(new Set())
+
+  // Internal dedup tracker
+  const inflightRequests = new Map<number, GenerationRequest>()
+
+  // --- Computed ---
+  const currentRoundQuestions = computed(() =>
+    allQuestions.value.get(currentRoundNo.value) ?? []
+  )
+
+  const hasReadyNextRound = computed(() => readyNextRoundNo.value !== null)
+
+  const isLoadingNextRound = computed(() =>
+    generatingRoundNo.value !== null && !hasReadyNextRound.value
+  )
+
+  const currentRoundInfo = computed(() => {
+    const questions = currentRoundQuestions.value
+    const coverage = questions.length > 0
+      ? [...new Set(questions.flatMap(q => q.coverageCategories ?? []))]
+      : []
+
+    return {
+      roundNo: currentRoundNo.value,
+      questionCount: questions.length,
+      coverageCategories: coverage,
+    }
+  })
+
+  // --- Actions ---
+
+  function setCurrentRoundQuestions(roundNo: number, questions: ClarificationQuestion[]) {
+    const existing = allQuestions.value.get(roundNo) ?? []
+    const merged = new Map<string, ClarificationQuestion>()
+    for (const q of existing) merged.set(q.id, q)
+    for (const q of questions) merged.set(q.id, q)
+    allQuestions.value.set(roundNo, [...merged.values()])
+
+    // Track covered areas
+    for (const q of questions) {
+      for (const cat of (q.coverageCategories ?? [])) {
+        coveredAreas.value.add(cat)
+      }
+    }
+  }
+
+  function activateNextRound(): boolean {
+    if (readyNextRoundNo.value === null) return false
+    currentRoundNo.value = readyNextRoundNo.value
+    readyNextRoundNo.value = null
+    contextVersion.value++
+    generationError.value = null
+    return true
+  }
+
+  function shouldStartGeneration(roundNo: number, requestId: string): boolean {
+    if (generatingRoundNo.value === roundNo) return false
+    if (readyNextRoundNo.value === roundNo) return false
+    // Dedup: same roundNo with same or newer contextVersion
+    const existing = inflightRequests.get(roundNo)
+    if (existing && existing.contextVersion >= contextVersion.value) return false
+
+    inflightRequests.set(roundNo, {
+      roundNo,
+      requestId,
+      contextVersion: contextVersion.value,
+    })
+    return true
+  }
+
+  function startGeneration(roundNo: number, requestId: string) {
+    generatingRoundNo.value = roundNo
+    generationRequestId.value = requestId
+    generationError.value = null
+  }
+
+  function completeGeneration(roundNo: number, questions: ClarificationQuestion[], requestId: string) {
+    // Verify this is still the expected generation
+    if (generationRequestId.value !== requestId) {
+      console.debug('Ignoring stale generation result for round', roundNo)
+      return
+    }
+
+    setCurrentRoundQuestions(roundNo, questions)
+    readyNextRoundNo.value = roundNo
+    generatingRoundNo.value = null
+    generationRequestId.value = null
+    contextVersion.value++
+  }
+
+  function markGenerationFailed(roundNo: number, error?: string) {
+    if (generatingRoundNo.value === roundNo) {
+      generatingRoundNo.value = null
+      generationRequestId.value = null
+      generationError.value = error ?? 'Background generation failed'
+    }
+  }
+
+  function markDownstreamStale(fromRoundNo: number) {
+    // Mark all rounds > fromRoundNo as STALE
+    for (const [roundNo] of allQuestions.value) {
+      if (roundNo > fromRoundNo) {
+        staleRounds.value.add(roundNo)
+      }
+    }
+    // Clear ready next round if it's stale
+    if (readyNextRoundNo.value !== null && readyNextRoundNo.value > fromRoundNo) {
+      readyNextRoundNo.value = null
+    }
+    // Stop any in-progress generation for stale rounds
+    if (generatingRoundNo.value !== null && generatingRoundNo.value > fromRoundNo) {
+      generatingRoundNo.value = null
+      generationRequestId.value = null
+    }
+  }
+
+  function clearStaleMarker(roundNo: number) {
+    staleRounds.value.delete(roundNo)
+  }
+
+  function isRoundStale(roundNo: number): boolean {
+    return staleRounds.value.has(roundNo)
+  }
+
+  // --- Persistence ---
+
+  async function persist(database: AppDatabase = appDatabase) {
+    const state: RoundPersistenceState = {
+      currentRoundNo: currentRoundNo.value,
+      readyNextRoundNo: readyNextRoundNo.value,
+      coveredAreas: [...coveredAreas.value],
+      pendingAreas: pendingAreas.value,
+      contextVersion: contextVersion.value,
+    }
+    await database.app_setting.put({
+      key: roundStateKey(),
+      value: state,
+      updatedAt: new Date().toISOString(),
+    })
+  }
+
+  async function recover(projectId: string, database: AppDatabase = appDatabase) {
+    // Load round state from app_setting
+    const record = await database.app_setting.get(roundStateKey())
+    if (record?.value) {
+      const saved = record.value as RoundPersistenceState
+      if (saved.currentRoundNo) currentRoundNo.value = saved.currentRoundNo
+      if (saved.readyNextRoundNo !== undefined) readyNextRoundNo.value = saved.readyNextRoundNo
+      if (saved.contextVersion) contextVersion.value = saved.contextVersion
+      if (saved.coveredAreas) coveredAreas.value = new Set(saved.coveredAreas)
+      if (saved.pendingAreas) pendingAreas.value = saved.pendingAreas
+    }
+
+    // Load questions grouped by roundNo
+    const questions = await database.clarification_question
+      .where('projectId').equals(projectId)
+      .toArray()
+
+    const byRound = new Map<number, ClarificationQuestion[]>()
+    for (const q of questions) {
+      const rn = q.roundNo ?? 0
+      if (!byRound.has(rn)) byRound.set(rn, [])
+      byRound.get(rn)!.push(q)
+    }
+    allQuestions.value = byRound
+
+    // Load rounds from clarification_round table
+    const rounds = await database.clarification_round
+      .where('projectId').equals(projectId)
+      .toArray()
+
+    // Restore ready next round
+    const readyRound = rounds.find(r => r.status === 'READY')
+    if (readyRound && !readyNextRoundNo.value) {
+      readyNextRoundNo.value = readyRound.roundNo
+    }
+
+    // Restore stale rounds
+    for (const r of rounds) {
+      if (r.status === 'STALE') staleRounds.value.add(r.roundNo)
+    }
+  }
+
+  async function persistRound(
+    round: ClarificationRound,
+    database: AppDatabase = appDatabase,
+  ) {
+    await database.clarification_round.put(round)
+  }
+
+  async function updateRoundStatus(
+    roundNo: number,
+    projectId: string,
+    status: ClarificationRoundStatus,
+    database: AppDatabase = appDatabase,
+  ) {
+    const existing = await database.clarification_round
+      .where('[projectId+roundNo]').equals([projectId, roundNo])
+      .first()
+    if (existing) {
+      await database.clarification_round.update(existing.id, { status, generatedAt: new Date().toISOString() })
+    }
+  }
+
+  async function deleteStaleRounds(
+    projectId: string,
+    fromRoundNo: number,
+    database: AppDatabase = appDatabase,
+  ) {
+    const stale = await database.clarification_round
+      .where('projectId').equals(projectId)
+      .filter(r => r.roundNo >= fromRoundNo && r.status === 'STALE')
+      .toArray()
+    for (const r of stale) {
+      await database.clarification_round.delete(r.id)
+    }
+  }
+
+  function reset() {
+    currentRoundNo.value = 1
+    readyNextRoundNo.value = null
+    generatingRoundNo.value = null
+    generationRequestId.value = null
+    contextVersion.value = 0
+    generationError.value = null
+    allQuestions.value = new Map()
+    coveredAreas.value = new Set()
+    pendingAreas.value = []
+    staleRounds.value = new Set()
+    inflightRequests.clear()
+  }
+
+  return {
+    // State
+    currentRoundNo,
+    readyNextRoundNo,
+    generatingRoundNo,
+    generationRequestId,
+    contextVersion,
+    generationError,
+    allQuestions,
+    coveredAreas,
+    pendingAreas,
+    staleRounds,
+    // Computed
+    currentRoundQuestions,
+    hasReadyNextRound,
+    isLoadingNextRound,
+    currentRoundInfo,
+    // Actions
+    setCurrentRoundQuestions,
+    activateNextRound,
+    shouldStartGeneration,
+    startGeneration,
+    completeGeneration,
+    markGenerationFailed,
+    markDownstreamStale,
+    clearStaleMarker,
+    isRoundStale,
+    persist,
+    recover,
+    persistRound,
+    updateRoundStatus,
+    deleteStaleRounds,
+    reset,
+  }
+})
+
+function roundStateKey(): `roundState:${string}` {
+  // We need context - this gets called from the store which doesn't have projectId
+  // The key will be set dynamically when project context is available
+  return 'roundState:current' as const
+}

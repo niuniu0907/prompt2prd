@@ -5,148 +5,411 @@ import { analysisStateRepository, type AnalysisState } from '@/db/repositories/a
 import { requirementRepository, type ManualRequirementEdit } from '@/db/repositories/requirementRepository'
 import { requirementInteractionRepository } from '@/db/repositories/requirementInteractionRepository'
 import { versionRepository } from '@/db/repositories/versionRepository'
-import type { RequirementItem, RequirementVersion } from './types'
-import { isFormalRequirement } from './requirementDisplay'
-import RequirementCard from './RequirementCard.vue'
-import RequirementEditor from './RequirementEditor.vue'
-import ConflictPanel from './ConflictPanel.vue'
-import AssumptionPanel from './AssumptionPanel.vue'
-import VersionHistory from '@/features/history/VersionHistory.vue'
+import type { RequirementItem, RequirementConflict, RequirementVersion } from './types'
+import {
+  isFormalRequirement,
+  requirementToGroup,
+  requirementGroupOrder,
+  requirementGroupDefaultOpen,
+} from './requirementDisplay'
+import RequirementGroup from './RequirementGroup.vue'
+import RequirementListItem from './RequirementListItem.vue'
+import RequirementDetailDrawer from './RequirementDetailDrawer.vue'
+import StatusFilter, { type StatusFilterValue } from './StatusFilter.vue'
 
 const route = inject(routeLocationKey, null)
 const router = useRouter()
 const projectId = computed(() => String(route?.params.projectId ?? ''))
+
 const state = ref<AnalysisState | null>(null)
 const versions = ref<RequirementVersion[]>([])
-const selected = ref<RequirementItem | null>(null)
-const busy = ref(false)
 const loading = ref(true)
+const busy = ref(false)
 const errorMessage = ref('')
 const infoMessage = ref('')
-const blockingConflict = computed(() => state.value?.conflicts.some(item => item.core && item.status === 'OPEN') ?? false)
-const assumptions = computed(() => state.value?.requirements.filter(item => item.type === 'ASSUMPTION' && item.metadata.decision !== 'REJECTED') ?? [])
+
+const activeFilter = ref<StatusFilterValue>('ALL')
+const drawerRequirement = ref<RequirementItem | null>(null)
+const collapsedGroups = ref(new Set<string>())
+
 const formalRequirements = computed(() => state.value?.requirements.filter(isFormalRequirement) ?? [])
-const confirmedCount = computed(() => formalRequirements.value.filter(item => item.status === 'CONFIRMED').length)
-const pendingCount = computed(() => formalRequirements.value.filter(item => item.status === 'PENDING').length)
-const unanalyzedCount = computed(() => formalRequirements.value.filter(item => item.status === 'UNANALYZED').length)
-const openConflictCount = computed(() => state.value?.conflicts.filter(item => item.status === 'OPEN').length ?? 0)
-const nextStep = computed<{ title: string; detail: string; routeName: string | null; action: string }>(() => {
-  if (formalRequirements.value.length === 0) {
-    return {
-      title: '等待首次分析',
-      detail: '当前还没有可展示的结构化需求。先回到需求输入页检查分析状态，再补充或重新分析需求。',
-      routeName: 'project-overview',
-      action: '回到需求输入',
-    }
+
+const statusFilterMap: Record<StatusFilterValue, string[]> = {
+  ALL: ['UNANALYZED', 'INFERRED', 'PENDING', 'CONFIRMED', 'SKIPPED', 'NOT_APPLICABLE', 'CONFLICTED'],
+  CONFIRMED: ['CONFIRMED'],
+  PENDING: ['INFERRED', 'PENDING'],
+  UNANALYZED: ['UNANALYZED'],
+  CONFLICTED: ['CONFLICTED'],
+}
+
+const filteredRequirements = computed(() => {
+  const allowed = statusFilterMap[activeFilter.value]
+  return formalRequirements.value.filter(r => allowed.includes(r.status))
+})
+
+const groupedRequirements = computed(() => {
+  const groups = new Map<string, RequirementItem[]>()
+  for (const req of filteredRequirements.value) {
+    const group = requirementToGroup(req.type)
+    if (!groups.has(group)) groups.set(group, [])
+    groups.get(group)!.push(req)
   }
-  if (openConflictCount.value) {
-    return {
-      title: `处理 ${openConflictCount.value} 个冲突`,
-      detail: '冲突会写入 PRD 的待处理事项；也可以先在本页处理。',
-      routeName: null,
-      action: '处理右侧冲突',
-    }
+  return Array.from(groups.entries())
+    .sort(([a], [b]) => requirementGroupOrder(a) - requirementGroupOrder(b))
+})
+
+const openConflicts = computed(() => state.value?.conflicts.filter(c => c.status === 'OPEN') ?? [])
+const openConflictCount = computed(() => openConflicts.value.length)
+const blockingConflict = computed(() => openConflicts.value.some(c => c.core))
+
+const confirmedCount = computed(() => formalRequirements.value.filter(r => r.status === 'CONFIRMED').length)
+const pendingCount = computed(() => formalRequirements.value.filter(r => r.status === 'INFERRED' || r.status === 'PENDING').length)
+const unanalyzedCount = computed(() => formalRequirements.value.filter(r => r.status === 'UNANALYZED').length)
+const conflictedCount = computed(() => formalRequirements.value.filter(r => r.status === 'CONFLICTED').length)
+
+
+const filterCounts = computed<Record<StatusFilterValue, number>>(() => ({
+  ALL: formalRequirements.value.length,
+  CONFIRMED: confirmedCount.value,
+  PENDING: pendingCount.value,
+  UNANALYZED: unanalyzedCount.value,
+  CONFLICTED: conflictedCount.value,
+}))
+
+const drawerRelatedConflicts = computed(() => {
+  if (!drawerRequirement.value) return []
+  const reqId = drawerRequirement.value.id
+  return openConflicts.value.filter(c => c.leftRequirementId === reqId || c.rightRequirementId === reqId)
+})
+
+const drawerVersions = computed(() => {
+  if (!drawerRequirement.value) return []
+  return versions.value.filter(v => {
+    const reqs = v.snapshot.requirements
+    return reqs.some(r => r.id === drawerRequirement.value!.id)
+  })
+})
+
+const nextStep = computed(() => {
+  if (formalRequirements.value.length === 0) {
+    return { label: '回到需求输入', routeName: 'project-overview' as const }
   }
   return {
-    title: state.value?.project.stage === 'PRD' || state.value?.project.stage === 'COMPLETED' ? '查看 PRD 文档' : '生成当前 PRD 草稿',
-    detail: '需求结果页不是强制确认关卡。可以继续编辑、确认或直接生成当前版本 PRD。',
-    routeName: 'project-prd',
-    action: state.value?.project.stage === 'PRD' || state.value?.project.stage === 'COMPLETED' ? '查看 PRD' : '生成 PRD',
+    label: state.value?.project.stage === 'PRD' || state.value?.project.stage === 'COMPLETED' ? '查看 PRD' : '生成 PRD',
+    routeName: 'project-prd' as const,
   }
 })
 
 onMounted(load)
+
 async function load() {
   try {
-    const [loaded, history] = await Promise.all([analysisStateRepository.load(projectId.value), versionRepository.listByProject(projectId.value)])
-    state.value = loaded ?? null; versions.value = history
-    if (selected.value) selected.value = loaded?.requirements.find(item => item.id === selected.value?.id) ?? null
-  } catch (error) { errorMessage.value = readable(error) }
-  finally { loading.value = false }
+    const [loaded, history] = await Promise.all([
+      analysisStateRepository.load(projectId.value),
+      versionRepository.listByProject(projectId.value),
+    ])
+    state.value = loaded ?? null
+    versions.value = history
+    if (drawerRequirement.value) {
+      drawerRequirement.value = loaded?.requirements.find(r => r.id === drawerRequirement.value?.id) ?? null
+    }
+    // Initialize collapsed groups: collapse only AI group by default
+    if (collapsedGroups.value.size === 0) {
+      const next = new Set<string>()
+      for (const [group] of groupedRequirements.value) {
+        if (!requirementGroupDefaultOpen(group)) next.add(group)
+      }
+      collapsedGroups.value = next
+    }
+  } catch (error) {
+    errorMessage.value = readable(error)
+  } finally {
+    loading.value = false
+  }
 }
-async function execute(action: () => Promise<unknown>) { busy.value = true; errorMessage.value = ''; infoMessage.value = ''; try { await action(); await load() } catch (error) { errorMessage.value = readable(error) } finally { busy.value = false } }
-function edit(item: RequirementItem) { selected.value = item }
-function viewDetail(item: RequirementItem) { selected.value = item }
+
+async function execute(action: () => Promise<unknown>) {
+  busy.value = true; errorMessage.value = ''; infoMessage.value = ''
+  try { await action(); await load() } catch (error) { errorMessage.value = readable(error) } finally { busy.value = false }
+}
+
+function openDrawer(item: RequirementItem) { drawerRequirement.value = item }
+function closeDrawer() { drawerRequirement.value = null }
+
+function confirmItem(item: RequirementItem) {
+  if (item.type === 'ASSUMPTION') {
+    void execute(() => requirementInteractionRepository.decideAssumption(item.id, true))
+  } else {
+    void execute(() => requirementInteractionRepository.confirmRequirement(item.id))
+  }
+}
+
+function rejectItem(itemId: string) {
+  const item = state.value?.requirements.find(r => r.id === itemId)
+  if (item?.type === 'ASSUMPTION') {
+    void execute(() => requirementInteractionRepository.decideAssumption(itemId, false))
+  } else {
+    void execute(() => requirementInteractionRepository.rejectRequirement(itemId))
+  }
+}
+
+function lockItem(id: string, locked: boolean) {
+  void execute(() => requirementInteractionRepository.setLocked(id, locked))
+}
+
+function saveEdit(edit: ManualRequirementEdit) {
+  if (drawerRequirement.value) {
+    void execute(() => requirementRepository.commitManualEdit(drawerRequirement.value!.id, edit))
+  }
+}
+
 function generateAcceptance(item: RequirementItem) {
-  selected.value = item
   errorMessage.value = ''
-  infoMessage.value = '验收标准会进入 PRD 文档生成；如需先补充细节，可以在当前需求确认中编辑。'
+  infoMessage.value = '验收标准会进入 PRD 文档生成；如需先补充细节，可以在需求详情中编辑。'
 }
-function generateFlowchart(item: RequirementItem) {
-  void router.push({
-    name: 'project-flowchart',
-    params: { projectId: projectId.value },
-    query: { requirementId: item.id },
-  })
+
+function resolveConflict(conflictId: string, resolution: string) {
+  void execute(() => requirementInteractionRepository.resolveConflict(conflictId, resolution))
 }
-function save(edit: ManualRequirementEdit) { if (selected.value) void execute(() => requirementRepository.commitManualEdit(selected.value!.id, edit)) }
-function lock(id: string, value: boolean) { void execute(() => requirementInteractionRepository.setLocked(id, value)) }
-function decide(id: string, accepted: boolean) { void execute(() => requirementInteractionRepository.decideAssumption(id, accepted)) }
-function resolve(id: string, resolution: string) { void execute(() => requirementInteractionRepository.resolveConflict(id, resolution)) }
-function restore(id: string) { void execute(() => versionRepository.restore(projectId.value, id)) }
+
+function handleDrawerConfirm(reqId: string) {
+  const item = state.value?.requirements.find(r => r.id === reqId)
+  if (item) confirmItem(item)
+}
+
+function handleDrawerSaveEdit(edit: ManualRequirementEdit) {
+  saveEdit(edit)
+}
+
+function toggleGroup(label: string) {
+  const next = new Set(collapsedGroups.value)
+  if (next.has(label)) next.delete(label)
+  else next.add(label)
+  collapsedGroups.value = next
+}
+
 function goToNextStep() {
-  if (!nextStep.value.routeName) return
   void router.push({ name: nextStep.value.routeName, params: { projectId: projectId.value } })
 }
-function readable(error: unknown) { return error instanceof Error ? error.message : '本地操作失败，原状态已保留。' }
+
+function readable(error: unknown) {
+  return error instanceof Error ? error.message : '本地操作失败，原状态已保留。'
+}
 </script>
 
 <template>
   <main class="requirements-view">
     <div v-if="loading" class="status">正在读取需求…</div>
     <template v-else-if="state">
-      <header class="heading"><div><span>需求结果</span><h1>结构化需求结果</h1></div><p>{{ formalRequirements.length }} 项已整理内容</p></header>
-      <section class="requirement-status" aria-label="需求确认状态">
-        <article><span>已确认</span><strong>{{ confirmedCount }}</strong></article>
-        <article><span>待确认</span><strong>{{ pendingCount }}</strong></article>
-        <article><span>待分析</span><strong>{{ unanalyzedCount }}</strong></article>
-        <article :class="{ blocked: openConflictCount > 0 }"><span>冲突</span><strong>{{ openConflictCount }}</strong></article>
-        <article class="next-card">
-          <span>下一步</span>
-          <strong>{{ nextStep.title }}</strong>
-          <button v-if="nextStep.routeName" type="button" class="button-primary" @click="goToNextStep">
-            {{ nextStep.action }}
+      <!-- Header -->
+      <header class="heading">
+        <div>
+          <span>需求结果</span>
+          <h1>结构化需求结果</h1>
+        </div>
+        <div class="heading__right">
+          <p>共{{ formalRequirements.length }}项</p>
+          <button
+            v-if="nextStep.routeName"
+            type="button"
+            class="button-primary"
+            @click="goToNextStep"
+          >
+            {{ nextStep.label }}
           </button>
-        </article>
-      </section>
+        </div>
+      </header>
+
+      <!-- Messages -->
       <div v-if="errorMessage" class="error" role="alert">{{ errorMessage }}</div>
       <div v-if="infoMessage" class="info" role="status">{{ infoMessage }}</div>
-      <div v-if="blockingConflict" class="warning">存在未解决的核心冲突，生成 PRD 时会标记为待处理。</div>
+      <div v-if="blockingConflict" class="warning">
+        存在未解决的核心冲突，生成 PRD 时会标记为待处理。
+        <button type="button" class="warning__link" @click="activeFilter = 'CONFLICTED'">查看冲突</button>
+      </div>
+
+      <!-- Empty guide -->
       <section v-if="formalRequirements.length === 0" class="empty-guide" aria-label="没有可确认需求">
         <div>
           <span>暂无结构化需求</span>
           <h2>还没有可确认的产品需求</h2>
-          <p>{{ nextStep.detail }}</p>
+          <p>当前还没有可展示的结构化需求。先回到需求输入页检查分析状态，再补充或重新分析需求。</p>
         </div>
-        <button type="button" class="button-primary" @click="goToNextStep">{{ nextStep.action }}</button>
+        <button type="button" class="button-primary" @click="goToNextStep">回到需求输入</button>
       </section>
-      <section class="layout">
-        <div class="main-column">
-          <RequirementEditor v-if="selected" :requirement="selected" :busy="busy" @save="save" @cancel="selected = null" />
-          <div v-if="formalRequirements.length" class="cards">
-            <RequirementCard
-              v-for="item in formalRequirements"
-              :key="item.id"
-              :requirement="item"
-              @edit="edit"
-              @view-detail="viewDetail"
-              @generate-acceptance="generateAcceptance"
-              @generate-flowchart="generateFlowchart"
-              @lock="lock"
-            />
-          </div>
-        </div>
-        <aside>
-          <ConflictPanel :conflicts="state.conflicts" @resolve="resolve" />
-          <AssumptionPanel :assumptions="assumptions" @decide="decide" />
-          <VersionHistory :versions="versions" :busy="busy" @restore="restore" />
-        </aside>
+
+      <!-- Filter -->
+      <StatusFilter
+        v-if="formalRequirements.length > 0"
+        v-model:active-filter="activeFilter"
+        :counts="filterCounts"
+      />
+
+      <!-- Grouped list -->
+      <section v-if="filteredRequirements.length" class="requirement-list">
+        <RequirementGroup
+          v-for="[groupLabel, items] in groupedRequirements"
+          :key="groupLabel"
+          :label="groupLabel"
+          :count="items.length"
+          :collapsed="collapsedGroups.has(groupLabel)"
+          @toggle="toggleGroup(groupLabel)"
+        >
+          <RequirementListItem
+            v-for="item in items"
+            :key="item.id"
+            :requirement="item"
+            @view="openDrawer"
+            @confirm="confirmItem"
+          />
+        </RequirementGroup>
       </section>
+      <p v-else-if="formalRequirements.length > 0" class="no-results">
+        当前筛选条件下没有需求。
+      </p>
+
+      <!-- Detail drawer -->
+      <RequirementDetailDrawer
+        :requirement="drawerRequirement"
+        :visible="drawerRequirement !== null"
+        :busy="busy"
+        :versions="drawerVersions"
+        :related-conflicts="drawerRelatedConflicts"
+        @close="closeDrawer"
+        @confirm="handleDrawerConfirm"
+        @reject="rejectItem"
+        @lock="lockItem"
+        @save-edit="handleDrawerSaveEdit"
+        @generate-acceptance="generateAcceptance"
+        @resolve-conflict="resolveConflict"
+      />
     </template>
     <div v-else class="status">没有找到项目需求状态。</div>
   </main>
 </template>
 
 <style scoped>
-.requirements-view{display:grid;gap:16px;max-width:1100px;margin:0 auto}.status{padding:48px;text-align:center;color:var(--color-text-secondary)}.heading{display:flex;align-items:end;justify-content:space-between}.heading span{color:var(--color-accent);font-size:10px;font-weight:750}.heading h1{margin:5px 0 0;font-size:22px}.heading p{color:var(--color-text-secondary);font-size:11px}.requirement-status{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:10px}.requirement-status article{display:grid;gap:7px;min-height:96px;padding:12px 13px;border:1px solid var(--color-border);border-radius:9px;background:var(--color-surface)}.requirement-status span{color:var(--color-text-secondary);font-size:11px}.requirement-status strong{color:var(--color-text-primary);font-size:15px}.requirement-status .blocked{border-color:#e2bcbc;background:#fff8f8}.requirement-status .blocked strong{color:#873f3f}.next-card button{align-self:end;justify-self:start;min-height:30px;padding:0 10px;border-radius:7px;font-size:11px}.error,.warning,.info{padding:11px 13px;border-radius:9px;font-size:10px}.error{color:#873f3f;background:#fff8f8}.warning{color:#765313;background:#fff9e8}.info{color:#246b58;background:#eefaf5}.empty-guide{display:flex;align-items:center;justify-content:space-between;gap:18px;padding:20px 22px;border:1px solid #ead9a6;border-radius:12px;background:#fff9e8}.empty-guide span{color:#765313;font-size:11px;font-weight:750}.empty-guide h2{margin:5px 0 6px;font-size:18px}.empty-guide p{margin:0;color:var(--color-text-secondary);font-size:12px;line-height:1.6}.empty-guide button{flex-shrink:0;min-height:38px;padding:0 15px;border-radius:8px;font-size:12px}.layout{display:grid;grid-template-columns:minmax(0,1fr) 300px;gap:16px}.main-column,.cards,aside{display:grid;align-content:start;gap:11px}.cards{grid-template-columns:repeat(2,minmax(0,1fr))}aside{padding-left:15px;border-left:1px solid var(--color-border)}
+.requirements-view {
+  display: grid;
+  gap: 16px;
+  max-width: 1060px;
+  margin: 0 auto;
+}
+
+.status {
+  padding: 48px;
+  text-align: center;
+  color: var(--color-text-secondary);
+}
+
+/* Heading */
+.heading {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 14px;
+}
+.heading span {
+  color: var(--color-accent);
+  font-size: 10px;
+  font-weight: 750;
+}
+.heading h1 {
+  margin: 5px 0 0;
+  font-size: 22px;
+}
+.heading__right {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.heading__right p {
+  margin: 0;
+  color: var(--color-text-secondary);
+  font-size: 11px;
+}
+.heading__right .button-primary {
+  min-height: 32px;
+  padding: 0 14px;
+  font-size: 12px;
+  border-radius: var(--radius-sm);
+}
+
+/* Messages */
+.error, .warning, .info {
+  padding: 11px 13px;
+  border-radius: 9px;
+  font-size: 11px;
+}
+.error {
+  color: #873f3f;
+  background: #fff8f8;
+}
+.warning {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: #765313;
+  background: #fff9e8;
+}
+.warning__link {
+  padding: 0;
+  font-size: 11px;
+  color: var(--color-accent);
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  text-decoration: underline;
+}
+.info {
+  color: #246b58;
+  background: #eefaf5;
+}
+
+/* Empty guide */
+.empty-guide {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  padding: 20px 22px;
+  border: 1px solid #ead9a6;
+  border-radius: 12px;
+  background: #fff9e8;
+}
+.empty-guide span {
+  color: #765313;
+  font-size: 11px;
+  font-weight: 750;
+}
+.empty-guide h2 {
+  margin: 5px 0 6px;
+  font-size: 18px;
+}
+.empty-guide p {
+  margin: 0;
+  color: var(--color-text-secondary);
+  font-size: 12px;
+  line-height: 1.6;
+}
+.empty-guide button {
+  flex-shrink: 0;
+  min-height: 38px;
+  padding: 0 15px;
+  border-radius: 8px;
+  font-size: 12px;
+}
+
+/* Requirement list */
+.requirement-list {
+  display: grid;
+  gap: 12px;
+}
+
+.no-results {
+  text-align: center;
+  padding: 36px;
+  color: var(--color-text-muted);
+  font-size: 13px;
+}
 </style>

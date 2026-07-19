@@ -1,4 +1,4 @@
-import type { RequirementItem } from './types'
+import type { RequirementItem, RequirementType } from './types'
 
 export const ARCHITECTURE_CANDIDATE_KIND = 'ARCHITECTURE_CANDIDATE'
 
@@ -46,4 +46,53 @@ export function structuredRequirementFields(requirement: RequirementItem): Struc
     const key = rawKey.trim()
     return { label: fieldLabels[key] ?? key, value: rest.join(':').trim() }
   })
+}
+
+// --- Requirement grouping ---
+
+export const REQUIREMENT_GROUPS: { label: string; types: RequirementType[]; order: number; defaultOpen: boolean }[] = [
+  { label: '产品与用户',    types: ['PRODUCT_GOAL', 'ROLE'],                                          order: 1, defaultOpen: true },
+  { label: '功能需求',      types: ['FEATURE', 'USER_STORY'],                                         order: 2, defaultOpen: true },
+  { label: '业务规则',      types: ['BUSINESS_RULE', 'EXCEPTION_SCENARIO'],                           order: 3, defaultOpen: true },
+  { label: '页面需求',      types: ['PAGE', 'API'],                                                    order: 4, defaultOpen: true },
+  { label: '数据需求',      types: ['DATA_MODEL'],                                                     order: 5, defaultOpen: true },
+  { label: '验收标准',      types: ['ACCEPTANCE_CRITERION'],                                           order: 6, defaultOpen: true },
+  { label: '非功能需求',    types: ['NON_FUNCTIONAL_REQUIREMENT', 'TECHNICAL_CONSTRAINT',
+                                    'CODING_AGENT_CONSTRAINT', 'IMPLEMENTATION_PHASE'],                order: 7, defaultOpen: true },
+  { label: 'AI 推断与风险', types: ['ASSUMPTION', 'RISK_OPEN_ITEM'],                                  order: 8, defaultOpen: false },
+]
+
+export function requirementToGroup(type: RequirementType): string {
+  for (const group of REQUIREMENT_GROUPS) {
+    if (group.types.includes(type)) return group.label
+  }
+  return '其他'
+}
+
+export function requirementGroupOrder(label: string): number {
+  return REQUIREMENT_GROUPS.find(g => g.label === label)?.order ?? 99
+}
+
+export function requirementGroupDefaultOpen(label: string): boolean {
+  return REQUIREMENT_GROUPS.find(g => g.label === label)?.defaultOpen ?? true
+}
+
+// --- Summary truncation ---
+
+export function requirementSummary(content: string, maxLength = 120): string {
+  const cleaned = content.replace(/\n/g, ' ').replace(/\s+/g, ' ').trim()
+  if (cleaned.length <= maxLength) return cleaned
+  return cleaned.slice(0, maxLength).replace(/\s+\S*$/, '') + '…'
+}
+
+// --- Flowchart eligibility ---
+
+const FLOW_KEYWORDS = ['订单', '支付', '审核', '退款', '退货', '状态变更', '审批', '流程', '申请', '流转']
+const FLOW_REJECT_KEYWORDS = ['静态页面', '列表展示', '只读', '查看']
+
+export function canGenerateFlowchart(requirement: RequirementItem): boolean {
+  const text = `${requirement.title} ${requirement.content}`
+  const hasFlow = FLOW_KEYWORDS.some(kw => text.includes(kw))
+  const isRejected = FLOW_REJECT_KEYWORDS.some(kw => text.includes(kw))
+  return hasFlow && !isRejected
 }

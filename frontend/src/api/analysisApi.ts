@@ -20,6 +20,25 @@ export interface AnalysisAnswersRequestBody {
   modelSettings: unknown
 }
 
+export interface GenerateRoundRequestBody {
+  state: unknown
+  targetRoundNo: number
+  coveredAreas: string[]
+  currentVisibleQuestions: { text: string; targetField: string; semanticKey: string }[]
+  missingInformation: string[]
+  modelSettings: unknown
+}
+
+export interface GenerateRoundResponseBody {
+  success: boolean
+  errorCode?: string
+  errorMessage?: string
+  roundNo: number
+  questions: unknown[]
+  coverageCategories: string[]
+  requestId: string
+}
+
 export interface AnalysisCallbacks {
   onEvent?: (event: KnownStreamEvent) => void
   onWarning?: (message: string) => void
@@ -32,9 +51,21 @@ export class StaleAnalysisError extends Error {
   }
 }
 
+export class RoundGenerationError extends Error {
+  constructor(
+    message: string,
+    readonly code: string,
+    readonly retryable = true,
+  ) {
+    super(message)
+    this.name = 'RoundGenerationError'
+  }
+}
+
 export function createAnalysisClient(fetcher: FetchLike = fetch) {
   let requestVersion = 0
   let activeController: AbortController | undefined
+  let generationRequestId: string | null = null
 
   const execute = async (
     url: string,
@@ -69,13 +100,83 @@ export function createAnalysisClient(fetcher: FetchLike = fetch) {
     }
   }
 
+  const jsonPost = async (
+    url: string,
+    body: unknown,
+    signal?: AbortSignal,
+  ): Promise<unknown> => {
+    const response = await fetcher(url, {
+      method: 'POST',
+      headers: {
+        'Accept': 'application/json',
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(body),
+      signal,
+    })
+
+    if (!response.ok) {
+      let errorMessage = `生成请求失败（HTTP ${response.status}）`
+      try {
+        const payload = await response.json() as Partial<{ errorCode: string; errorMessage: string }>
+        if (payload.errorMessage) errorMessage = payload.errorMessage
+      } catch { /* ignore parse failure */ }
+      throw new RoundGenerationError(errorMessage, `HTTP_${response.status}`, response.status >= 500)
+    }
+
+    return response.json()
+  }
+
   return {
     analyze: (body: AnalysisRequestBody, callbacks?: AnalysisCallbacks) =>
       execute('/api/analysis', body, callbacks),
+
     submitAnswers: (body: AnalysisAnswersRequestBody, callbacks?: AnalysisCallbacks) =>
       execute('/api/analysis/answers', body, callbacks),
+
+    generateRound: async (
+      body: GenerateRoundRequestBody,
+      signal?: AbortSignal,
+    ): Promise<GenerateRoundResponseBody> => {
+      const id = crypto.randomUUID()
+      generationRequestId = id
+
+      const startTime = performance.now()
+      try {
+        const result = await jsonPost('/api/analysis/generate-round', body, signal) as GenerateRoundResponseBody
+        const elapsed = Math.round(performance.now() - startTime)
+        console.debug(`[analysisApi] generateRound roundNo=${body.targetRoundNo} latencyMs=${elapsed}`)
+
+        // Validate this is still the latest request
+        if (generationRequestId !== id) {
+          throw new StaleAnalysisError()
+        }
+
+        if (!result.success) {
+          throw new RoundGenerationError(
+            result.errorMessage ?? 'Round generation failed',
+            result.errorCode ?? 'GENERATION_FAILED',
+            true,
+          )
+        }
+
+        return result
+      } catch (error) {
+        if (error instanceof StaleAnalysisError) throw error
+        if (error instanceof RoundGenerationError) throw error
+        const elapsed = Math.round(performance.now() - startTime)
+        console.warn(`[analysisApi] generateRound failed roundNo=${body.targetRoundNo} latencyMs=${elapsed}`, error)
+        throw new RoundGenerationError(
+          error instanceof Error ? error.message : 'Round generation failed',
+          'GENERATION_FAILED',
+          true,
+        )
+      }
+    },
+
     cancel: () => {
       requestVersion += 1
+      generationRequestId = null
       activeController?.abort()
       activeController = undefined
     },

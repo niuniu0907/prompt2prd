@@ -33,6 +33,14 @@ final class SecureOpenAiHttpClient implements HttpClient {
     private final OkHttpClient client;
 
     SecureOpenAiHttpClient(EndpointAddressPolicy.ValidatedEndpoint endpoint) {
+        this(endpoint, Duration.ofSeconds(30), Duration.ofMinutes(10), Duration.ofMinutes(10));
+    }
+
+    SecureOpenAiHttpClient(
+            EndpointAddressPolicy.ValidatedEndpoint endpoint,
+            Duration connectTimeout,
+            Duration readTimeout,
+            Duration callTimeout) {
         Dns pinnedDns = hostname -> {
             if (!normalizeHost(hostname).equals(normalizeHost(endpoint.host()))) {
                 throw new java.net.UnknownHostException("Unexpected model request host");
@@ -44,6 +52,9 @@ final class SecureOpenAiHttpClient implements HttpClient {
                 .followRedirects(false)
                 .followSslRedirects(false)
                 .retryOnConnectionFailure(false)
+                .connectTimeout(connectTimeout)
+                .readTimeout(readTimeout)
+                .callTimeout(callTimeout)
                 .build();
     }
 

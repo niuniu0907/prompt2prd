@@ -14,12 +14,15 @@ import java.util.concurrent.atomic.AtomicLong;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import com.openai.client.OpenAIClientAsyncImpl;
 import com.openai.client.OpenAIClientImpl;
 import com.openai.core.ClientOptions;
 import com.openai.errors.OpenAIIoException;
 import com.openai.errors.OpenAIInvalidDataException;
 import com.openai.errors.OpenAIServiceException;
+import com.prompt2prd.common.config.GenerationProperties;
 import com.prompt2prd.model.application.AvailableModel;
 import com.prompt2prd.model.application.ModelCallContext;
 import com.prompt2prd.model.application.ModelConnectionRequest;
@@ -58,20 +61,34 @@ import reactor.core.scheduler.Schedulers;
 /** Spring AI adapter for OpenAI-compatible chat completion services. */
 public final class SpringAiModelGateway implements ModelGateway {
 
+    private static final Logger log = LoggerFactory.getLogger(SpringAiModelGateway.class);
     private static final ObjectMapper JSON = new ObjectMapper();
 
     private final EndpointAddressPolicy endpointPolicy;
+    private final Duration connectTimeout;
+    private final Duration readTimeout;
+    private final Duration callTimeout;
 
     public SpringAiModelGateway() {
-        this(EndpointAddressPolicy.fromEnvironment());
+        this(EndpointAddressPolicy.fromEnvironment(), new GenerationProperties());
     }
 
     public SpringAiModelGateway(EndpointAddressPolicy endpointPolicy) {
+        this(endpointPolicy, new GenerationProperties());
+    }
+
+    public SpringAiModelGateway(EndpointAddressPolicy endpointPolicy, GenerationProperties generationProperties) {
         this.endpointPolicy = endpointPolicy;
+        this.connectTimeout = generationProperties.connectionTimeout();
+        this.readTimeout = generationProperties.totalTimeout();
+        this.callTimeout = generationProperties.totalTimeout();
     }
 
     @Override
     public <T> Mono<StructuredModelResult<T>> generateStructured(StructuredModelRequest<T> request) {
+        Instant started = Instant.now();
+        int promptChars = request.messages().stream()
+                .mapToInt(m -> m.content().length()).sum();
         return withCancellation(
                 request.context(),
                 Mono.using(
@@ -87,11 +104,25 @@ public final class SpringAiModelGateway implements ModelGateway {
                                     request.context().endpoint().model()));
                         }).subscribeOn(Schedulers.boundedElastic()),
                         ClientBundle::close))
+                .doOnSuccess(result -> {
+                    long latencyMs = Duration.between(started, Instant.now()).toMillis();
+                    log.info("model_call scene=structured_generation model={} latencyMs={} promptChars={}",
+                            request.context().endpoint().model(), latencyMs, promptChars);
+                })
+                .doOnError(error -> {
+                    long latencyMs = Duration.between(started, Instant.now()).toMillis();
+                    log.warn("model_call scene=structured_generation model={} latencyMs={} promptChars={} error={}",
+                            request.context().endpoint().model(), latencyMs, promptChars,
+                            error.getClass().getSimpleName());
+                })
                 .onErrorMap(this::translateFailure);
     }
 
     @Override
     public Flux<TextModelChunk> streamText(TextModelRequest request) {
+        Instant started = Instant.now();
+        int promptChars = request.messages().stream()
+                .mapToInt(m -> m.content().length()).sum();
         AtomicLong sequence = new AtomicLong();
         Flux<TextModelChunk> stream = Flux.using(
                 () -> createClient(request.context().endpoint(), null),
@@ -109,6 +140,17 @@ public final class SpringAiModelGateway implements ModelGateway {
                 .concatWith(Flux.defer(() -> request.context().cancellation().isCancelled()
                         ? Flux.error(cancelled())
                         : Flux.empty()))
+                .doOnComplete(() -> {
+                    long latencyMs = Duration.between(started, Instant.now()).toMillis();
+                    log.info("model_call scene=text_stream model={} latencyMs={} promptChars={} chunks={}",
+                            request.context().endpoint().model(), latencyMs, promptChars, sequence.get());
+                })
+                .doOnError(error -> {
+                    long latencyMs = Duration.between(started, Instant.now()).toMillis();
+                    log.warn("model_call scene=text_stream model={} latencyMs={} promptChars={} error={}",
+                            request.context().endpoint().model(), latencyMs, promptChars,
+                            error.getClass().getSimpleName());
+                })
                 .onErrorMap(this::translateFailure);
     }
 
@@ -159,7 +201,8 @@ public final class SpringAiModelGateway implements ModelGateway {
 
     private ClientBundle createClient(ModelEndpoint endpoint, String outputSchema) {
         EndpointAddressPolicy.ValidatedEndpoint validated = endpointPolicy.validate(endpoint.baseUrl());
-        SecureOpenAiHttpClient transport = new SecureOpenAiHttpClient(validated);
+        SecureOpenAiHttpClient transport = new SecureOpenAiHttpClient(
+                validated, connectTimeout, readTimeout, callTimeout);
         ClientOptions clientOptions = ClientOptions.builder()
                 .httpClient(transport)
                 .baseUrl(endpoint.baseUrl().toString())

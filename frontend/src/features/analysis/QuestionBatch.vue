@@ -8,7 +8,8 @@ const props = withDefaults(defineProps<{
   questions: ClarificationQuestion[]
   busy?: boolean
   canGeneratePrd?: boolean
-}>(), { busy: false, canGeneratePrd: false })
+  roundNo?: number
+}>(), { busy: false, canGeneratePrd: false, roundNo: 1 })
 const emit = defineEmits<{
   submit: [answers: QuestionAnswerDraft[]]
   generatePrd: [answers: QuestionAnswerDraft[]]
@@ -62,10 +63,10 @@ function adoptSuggestion() {
   <section class="question-batch">
     <header class="question-batch__heading">
       <div>
-        <span>本轮已回答 {{ answeredCount }}/{{ questions.length }}</span>
+        <span>第 {{ roundNo }} 轮 · 已回答 {{ answeredCount }}/{{ questions.length }}</span>
         <h1>一次回答完本轮问题</h1>
       </div>
-      <p>可以选择选项、填写补充、采用 AI 建议或跳过本轮。每轮最多 10 题。</p>
+      <p>可以选择选项、填写补充、采用 AI 建议或跳过本轮。每轮 8-10 题。</p>
     </header>
     <QuestionCard
       v-for="(question, index) in questions"

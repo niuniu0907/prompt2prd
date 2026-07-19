@@ -56,6 +56,39 @@ export class RequirementInteractionRepository {
     })
   }
 
+  async confirmRequirement(requirementId: string, now = new Date().toISOString()): Promise<RequirementItem> {
+    assertUuid(requirementId, 'requirement id'); assertUtcIsoDateTime(now, 'confirm timestamp')
+    return this.database.transaction('rw', this.tables(), async () => {
+      const current = await this.requireRequirement(requirementId)
+      if (current.locked) throw new Error('Unlock the requirement before confirming')
+      const updated: RequirementItem = {
+        ...current,
+        status: 'CONFIRMED',
+        sourceType: current.sourceType === 'AI_INFERENCE' ? 'USER_ANSWER' : current.sourceType,
+        updatedAt: now,
+      }
+      await this.database.requirement_item.put(updated)
+      await this.recordVersion(current.projectId, `确认需求：${current.title}`, 'UPDATE', current.id, 'status', current.status, 'CONFIRMED', now)
+      return updated
+    })
+  }
+
+  async rejectRequirement(requirementId: string, now = new Date().toISOString()): Promise<RequirementItem> {
+    assertUuid(requirementId, 'requirement id'); assertUtcIsoDateTime(now, 'reject timestamp')
+    return this.database.transaction('rw', this.tables(), async () => {
+      const current = await this.requireRequirement(requirementId)
+      if (current.locked) throw new Error('Unlock the requirement before rejecting')
+      const updated: RequirementItem = {
+        ...current,
+        status: 'SKIPPED',
+        updatedAt: now,
+      }
+      await this.database.requirement_item.put(updated)
+      await this.recordVersion(current.projectId, `拒绝需求：${current.title}`, 'UPDATE', current.id, 'status', current.status, 'SKIPPED', now)
+      return updated
+    })
+  }
+
   async assertEditable(requirementId: string): Promise<void> {
     const requirement = await this.requireRequirement(requirementId)
     if (requirement.locked) throw new Error('Unlock the requirement before editing')

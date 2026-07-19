@@ -37,6 +37,7 @@ public record AnalysisModelOutput(
             @NotBlank String semanticKey,
             @NotBlank String inputType,
             @NotNull List<@Valid OptionCandidate> options,
+            @NotNull List<@NotBlank String> coverageCategories,
             @Min(1) @Max(5) int businessImpact,
             @Min(1) @Max(5) int informationGap,
             @Min(1) @Max(5) int dependencyCount,
@@ -44,6 +45,7 @@ public record AnalysisModelOutput(
 
         public QuestionCandidate {
             options = options == null ? null : List.copyOf(options);
+            coverageCategories = coverageCategories == null ? List.of() : List.copyOf(coverageCategories);
         }
     }
 

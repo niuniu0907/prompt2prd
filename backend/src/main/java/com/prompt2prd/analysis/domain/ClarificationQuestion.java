@@ -12,6 +12,7 @@ public record ClarificationQuestion(
         @NotNull UUID id,
         @NotNull UUID projectId,
         @NotNull UUID batchId,
+        int roundNo,
         @NotBlank String text,
         @NotBlank String reason,
         @NotNull RequirementDimension dimension,
@@ -19,6 +20,7 @@ public record ClarificationQuestion(
         @NotBlank String semanticKey,
         @NotNull QuestionInputType inputType,
         @NotNull List<@Valid ClarificationOption> options,
+        @NotNull List<@NotBlank String> coverageCategories,
         double priority,
         @NotNull QuestionStatus status,
         @NotNull Instant createdAt,
@@ -38,6 +40,7 @@ public record ClarificationQuestion(
             semanticKey = semanticKey.trim();
         }
         options = options == null ? List.of() : List.copyOf(options);
+        coverageCategories = coverageCategories == null ? List.of() : List.copyOf(coverageCategories);
         if (!Double.isFinite(priority) || priority < 0 || priority > 5) {
             throw new IllegalArgumentException("priority must be between 0 and 5");
         }
@@ -47,12 +50,12 @@ public record ClarificationQuestion(
     }
 
     public ClarificationQuestion withPriority(double value) {
-        return new ClarificationQuestion(id, projectId, batchId, text, reason, dimension,
-                targetField, semanticKey, inputType, options, value, status, createdAt, updatedAt);
+        return new ClarificationQuestion(id, projectId, batchId, roundNo, text, reason, dimension,
+                targetField, semanticKey, inputType, options, coverageCategories, value, status, createdAt, updatedAt);
     }
 
     public ClarificationQuestion withStatus(QuestionStatus value, Instant now) {
-        return new ClarificationQuestion(id, projectId, batchId, text, reason, dimension,
-                targetField, semanticKey, inputType, options, priority, value, createdAt, now);
+        return new ClarificationQuestion(id, projectId, batchId, roundNo, text, reason, dimension,
+                targetField, semanticKey, inputType, options, coverageCategories, priority, value, createdAt, now);
     }
 }

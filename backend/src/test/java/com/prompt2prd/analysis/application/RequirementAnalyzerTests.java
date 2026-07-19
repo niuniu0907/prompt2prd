@@ -178,6 +178,7 @@ class RequirementAnalyzerTests {
                         new AnalysisModelOutput.OptionCandidate("产品负责人维护", "决策集中，适合单人或小团队推进", true),
                         new AnalysisModelOutput.OptionCandidate("多人协作维护", "需要权限和版本协同，适合团队长期维护", false)
                 ),
+                List.of(),
                 5,
                 5,
                 3,
@@ -193,6 +194,7 @@ class RequirementAnalyzerTests {
                 "refundWindow",
                 semanticKey,
                 "TEXT",
+                List.of(),
                 List.of(),
                 5,
                 5,

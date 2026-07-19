@@ -2,6 +2,10 @@ package com.prompt2prd.analysis.api;
 
 import com.prompt2prd.analysis.application.AnalysisContextBuilder;
 import com.prompt2prd.analysis.application.AnalysisOrchestrator;
+import com.prompt2prd.analysis.application.CompactAnalysisContext;
+import com.prompt2prd.analysis.application.CompactPromptBuilder;
+import com.prompt2prd.analysis.application.RoundPromptBuilder;
+import com.prompt2prd.analysis.application.RoundQuestionGenerator;
 import com.prompt2prd.common.api.ApiException;
 import com.prompt2prd.common.api.RequestIdWebFilter;
 import com.prompt2prd.common.config.ModelProperties;
@@ -15,6 +19,8 @@ import com.prompt2prd.quota.QuotaService;
 import com.prompt2prd.stream.StreamEvent;
 import com.prompt2prd.stream.StreamEventSequence;
 import jakarta.validation.Valid;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.http.MediaType;
 import org.springframework.http.codec.ServerSentEvent;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -23,6 +29,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.server.ServerWebExchange;
 import reactor.core.publisher.Flux;
+import reactor.core.publisher.Mono;
 
 import java.util.List;
 import java.util.UUID;
@@ -31,17 +38,22 @@ import java.util.UUID;
 @RequestMapping("/api/analysis")
 public class AnalysisController {
 
+    private static final Logger log = LoggerFactory.getLogger(AnalysisController.class);
+
     private final AnalysisOrchestrator orchestrator;
+    private final RoundQuestionGenerator roundQuestionGenerator;
     private final ModelProperties modelProperties;
     private final QuotaService quotaService;
     private final ClientIpDigest clientIpDigest;
 
     public AnalysisController(
             AnalysisOrchestrator orchestrator,
+            RoundQuestionGenerator roundQuestionGenerator,
             ModelProperties modelProperties,
             QuotaService quotaService,
             ClientIpDigest clientIpDigest) {
         this.orchestrator = orchestrator;
+        this.roundQuestionGenerator = roundQuestionGenerator;
         this.modelProperties = modelProperties;
         this.quotaService = quotaService;
         this.clientIpDigest = clientIpDigest;
@@ -66,6 +78,73 @@ public class AnalysisController {
                 .toList();
         return stream(request.state(), answerAnalysisInput(request), answers,
                 request.missingInformation(), request.modelSettings(), exchange);
+    }
+
+    @PostMapping(path = "/generate-round")
+    public Mono<GenerateRoundResponse> generateRound(
+            @Valid @RequestBody GenerateRoundRequest request,
+            ServerWebExchange exchange) {
+        return Mono.deferContextual(contextView -> {
+            String requestId = contextView.getOrDefault(
+                    RequestIdWebFilter.REQUEST_ID_KEY, UUID.randomUUID().toString());
+            quotaService.beginOperation(
+                    clientIpDigest.from(exchange), request.modelSettings().keySource(),
+                    com.prompt2prd.quota.QuotaOperation.ANALYSIS);
+            quotaService.acquireUpstreamCalls(request.modelSettings().keySource(), 1);
+            ModelCancellationSignal cancellation = new ModelCancellationSignal();
+
+            ModelEndpoint endpoint;
+            try {
+                ModelConfig credential = modelProperties.resolve(
+                        request.modelSettings().keySource(), request.modelSettings().apiKey());
+                endpoint = new ModelEndpoint(
+                        request.modelSettings().provider().resolveBaseUrl(request.modelSettings().baseUrl()),
+                        request.modelSettings().model(), credential.apiKey(),
+                        request.modelSettings().parameters());
+            } catch (RuntimeException exception) {
+                return Mono.just(GenerateRoundResponse.error("INVALID_CONFIGURATION",
+                        "Selected model configuration is invalid"));
+            }
+
+            ModelCallContext modelContext = new ModelCallContext(requestId, endpoint, cancellation);
+
+            // Build compact context for round generation
+            CompactAnalysisContext compactContext = CompactPromptBuilder.forRoundGeneration(
+                    request.state(),
+                    request.targetRoundNo(),
+                    request.state().questions(), // current visible questions from state
+                    request.coveredAreas());
+
+            List<String> targetKeys = computeTargetKeys(
+                    request.targetRoundNo(), request.coveredAreas());
+
+            return roundQuestionGenerator.generate(
+                            modelContext,
+                            request.state().project().id(),
+                            request.targetRoundNo(),
+                            compactContext,
+                            targetKeys,
+                            request.coveredAreas())
+                    .map(questions -> GenerateRoundResponse.success(
+                            request.targetRoundNo(), questions,
+                            targetKeys, requestId))
+                    .doOnCancel(cancellation::cancel)
+                    .onErrorResume(error -> {
+                        log.warn("Round generation failed: {}", error.getMessage());
+                        return Mono.just(GenerateRoundResponse.error(
+                                "GENERATION_FAILED", error.getMessage()));
+                    });
+        });
+    }
+
+    private List<String> computeTargetKeys(int roundNo, List<String> coveredAreas) {
+        if (roundNo == 1) {
+            return RoundPromptBuilder.roundOneCoverageKeys();
+        }
+        if (roundNo == 2) {
+            return RoundPromptBuilder.roundTwoCoverageKeys();
+        }
+        return RoundPromptBuilder.nextRoundCoverageKeys(coveredAreas, 5);
     }
 
     private String answerAnalysisInput(AnalysisAnswersRequest request) {

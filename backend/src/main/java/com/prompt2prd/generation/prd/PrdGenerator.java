@@ -1,5 +1,6 @@
 package com.prompt2prd.generation.prd;
 
+import com.prompt2prd.analysis.application.RequirementFormatter;
 import com.prompt2prd.analysis.domain.ConflictStatus;
 import com.prompt2prd.analysis.domain.ClarificationAnswer;
 import com.prompt2prd.analysis.domain.ClarificationQuestion;
@@ -90,7 +91,7 @@ public final class PrdGenerator {
                 + "\nDocument mode=" + mode
                 + "\nSection=" + definition.key().wireName() + " | " + definition.title()
                 + "\nCompleteness=" + state.completeness().total()
-                + "\nCurrent structured requirements=" + currentRequirements
+                + "\nCurrent structured requirements=" + RequirementFormatter.compactSummary(currentRequirements)
                 + "\nSaved clarification answers=" + clarificationEvidence(state)
                 + "\nMissing or pending items=" + missing
                 + "\nRules: generate only from current information; "

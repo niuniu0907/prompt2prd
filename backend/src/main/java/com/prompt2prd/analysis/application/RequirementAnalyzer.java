@@ -8,6 +8,8 @@ import com.prompt2prd.analysis.domain.PrdCoverageArea;
 import com.prompt2prd.analysis.domain.QuestionInputType;
 import com.prompt2prd.analysis.domain.QuestionSelector;
 import com.prompt2prd.analysis.domain.QuestionStatus;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import com.prompt2prd.analysis.domain.RequirementDimension;
 import com.prompt2prd.analysis.domain.RequirementItem;
 import com.prompt2prd.analysis.domain.RequirementSourceType;
@@ -38,6 +40,7 @@ import java.util.function.Supplier;
 @Component
 public final class RequirementAnalyzer implements AnalysisEngine {
 
+    private static final Logger log = LoggerFactory.getLogger(RequirementAnalyzer.class);
     private static final int SUFFICIENT_COMPLETENESS_THRESHOLD = 80;
 
     static final String OUTPUT_SCHEMA = """
@@ -204,6 +207,11 @@ public final class RequirementAnalyzer implements AnalysisEngine {
     @Override
     public Mono<AnalysisResult> analyze(AnalysisCommand command) {
         Objects.requireNonNull(command, "command");
+        String promptText = prompt(command.context(), command.currentInput());
+        int promptChars = promptText.length();
+        int requirementCount = command.currentState().requirements().size();
+        log.info("analysis_start promptChars={} requirementCount={} projectId={}",
+                promptChars, requirementCount, command.currentState().project().id());
         StructuredModelRequest<AnalysisModelOutput> request = new StructuredModelRequest<>(
                 command.modelContext(),
                 List.of(
@@ -315,12 +323,12 @@ public final class RequirementAnalyzer implements AnalysisEngine {
             Instant now,
             String language) {
         ClarificationQuestion question = new ClarificationQuestion(
-                idGenerator.get(), current.project().id(), batchId,
+                idGenerator.get(), current.project().id(), batchId, 0,
                 fallbackQuestionText(area, language),
                 fallbackQuestionReason(area, language),
                 area.dimension(), area.key() + ".fallback",
                 area.key() + "-fallback", QuestionInputType.SINGLE_SELECT,
-                fallbackOptions(area, language), 0, QuestionStatus.PENDING, now, now);
+                fallbackOptions(area, language), List.of(area.key()), 0, QuestionStatus.PENDING, now, now);
         return new com.prompt2prd.analysis.domain.QuestionCandidate(question, 4, 5, 3, 3);
     }
 
@@ -408,19 +416,27 @@ public final class RequirementAnalyzer implements AnalysisEngine {
                 .map(option -> new ClarificationOption(
                         idGenerator.get(), option.label(), option.impact(), option.recommended()))
                 .toList();
-        if (inputType != QuestionInputType.SINGLE_SELECT && inputType != QuestionInputType.MULTI_SELECT) {
-            throw new AnalysisRetryableException("Clarification questions must be selectable");
-        }
-        if (options.size() < 2) {
-            throw new AnalysisRetryableException("Selectable questions require at least two options");
+        if (inputType == QuestionInputType.SINGLE_SELECT || inputType == QuestionInputType.MULTI_SELECT
+                || inputType == QuestionInputType.AI_RECOMMENDED) {
+            if (options.size() < 2) {
+                throw new AnalysisRetryableException("Selectable questions require at least two options");
+            }
         }
         ClarificationQuestion question = new ClarificationQuestion(
-                idGenerator.get(), current.project().id(), batchId,
+                idGenerator.get(), current.project().id(), batchId, 0,
                 raw.text(), raw.reason(), dimension, raw.targetField(), raw.semanticKey(),
-                inputType, options, 0, QuestionStatus.PENDING, now, now);
+                inputType, options, safeCoverageCategories(raw), 0, QuestionStatus.PENDING, now, now);
         return new com.prompt2prd.analysis.domain.QuestionCandidate(
                 question, raw.businessImpact(), raw.informationGap(),
                 raw.dependencyCount(), raw.risk());
+    }
+
+    private List<String> safeCoverageCategories(AnalysisModelOutput.QuestionCandidate raw) {
+        try {
+            return raw.coverageCategories() != null ? raw.coverageCategories() : List.of();
+        } catch (Exception ignored) {
+            return List.of();
+        }
     }
 
     private RequirementDimension dimensionFor(RequirementType type) {
@@ -457,8 +473,8 @@ public final class RequirementAnalyzer implements AnalysisEngine {
         return "Project=" + context.project().name()
                 + "\nLanguage=" + context.language()
                 + "\nCurrent input=" + currentInput
-                + "\nCurrent requirements=" + context.currentRequirements()
-                + "\nLocked requirements=" + context.lockedRequirements()
+                + "\nCurrent requirements=" + RequirementFormatter.compactSummary(context.currentRequirements())
+                + "\nLocked requirements=" + RequirementFormatter.compactSummary(context.lockedRequirements())
                 + "\nAnswer history=" + context.answerHistory()
                 + "\nMissing information=" + context.missingInformation()
                 + "\nPRD coverage checklist=\n" + PrdCoverageArea.promptChecklist()

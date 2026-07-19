@@ -12,6 +12,8 @@ export interface PostSseOptions {
   url: string
   body: unknown
   signal?: AbortSignal
+  /** Timeout in milliseconds for the entire SSE stream. Defaults to 5 minutes. */
+  timeoutMs?: number
   fetcher?: FetchLike
   onEvent?: (event: KnownStreamEvent) => void
   onWarning?: (message: string) => void
@@ -28,8 +30,20 @@ export class AnalysisStreamError extends Error {
   }
 }
 
+function combinedSignal(signal: AbortSignal | undefined, timeoutMs: number): AbortSignal {
+  try {
+    const timeout = AbortSignal.timeout(timeoutMs)
+    if (!signal) return timeout
+    return AbortSignal.any([signal, timeout])
+  } catch {
+    // Fallback: return provided signal (AbortSignal.any/timeout may not be available)
+    return signal ?? new AbortController().signal
+  }
+}
+
 export async function consumePostSse(options: PostSseOptions): Promise<unknown> {
   const fetcher = options.fetcher ?? fetch
+  const effectiveSignal = combinedSignal(options.signal, options.timeoutMs ?? 300_000)
   const response = await fetcher(options.url, {
     method: 'POST',
     headers: {
@@ -37,7 +51,7 @@ export async function consumePostSse(options: PostSseOptions): Promise<unknown> 
       'Content-Type': 'application/json',
     },
     body: JSON.stringify(options.body),
-    signal: options.signal,
+    signal: effectiveSignal,
   })
 
   if (!response.ok) {

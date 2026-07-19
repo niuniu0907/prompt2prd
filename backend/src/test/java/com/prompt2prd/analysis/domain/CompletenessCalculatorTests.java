@@ -160,8 +160,8 @@ class CompletenessCalculatorTests {
 
     private ClarificationQuestion question(RequirementDimension dimension) {
         return new ClarificationQuestion(
-                UUID.randomUUID(), PROJECT_ID, UUID.randomUUID(), "question", "reason",
+                UUID.randomUUID(), PROJECT_ID, UUID.randomUUID(), 0, "question", "reason",
                 dimension, "target", "semantic", QuestionInputType.TEXT, List.of(),
-                4, QuestionStatus.PENDING, NOW, NOW);
+                List.of(), 4, QuestionStatus.PENDING, NOW, NOW);
     }
 }

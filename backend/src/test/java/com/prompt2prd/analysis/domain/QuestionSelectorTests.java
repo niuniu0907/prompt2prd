@@ -95,9 +95,9 @@ class QuestionSelectorTests {
             int dependencies,
             int risk) {
         ClarificationQuestion question = new ClarificationQuestion(
-                UUID.randomUUID(), PROJECT_ID, BATCH_ID, text, "reason",
+                UUID.randomUUID(), PROJECT_ID, BATCH_ID, 0, text, "reason",
                 RequirementDimension.ROLES_PERMISSIONS, target, semanticKey,
-                QuestionInputType.TEXT, List.of(), 0, QuestionStatus.PENDING, NOW, NOW);
+                QuestionInputType.TEXT, List.of(), List.of(), 0, QuestionStatus.PENDING, NOW, NOW);
         return new QuestionCandidate(question, impact, gap, dependencies, risk);
     }
 }

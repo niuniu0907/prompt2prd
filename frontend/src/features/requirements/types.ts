@@ -82,6 +82,7 @@ export const QUESTION_INPUT_TYPES = [
   'MULTI_SELECT_CUSTOM',
   'TEXT',
   'CONFIRMATION',
+  'AI_RECOMMENDED',
 ] as const
 export type QuestionInputType = (typeof QUESTION_INPUT_TYPES)[number]
 export type ClarificationQuestionStatus = 'PENDING' | 'ANSWERED' | 'SKIPPED'
@@ -97,6 +98,7 @@ export interface ClarificationQuestion {
   id: Uuid
   projectId: Uuid
   batchId: Uuid
+  roundNo: number
   text: string
   reason: string
   dimension: string
@@ -104,6 +106,7 @@ export interface ClarificationQuestion {
   semanticKey: string
   inputType: QuestionInputType
   options: ClarificationOption[]
+  coverageCategories: string[]
   priority: number
   status: ClarificationQuestionStatus
   createdAt: UtcIsoDateTime
@@ -120,6 +123,21 @@ export interface ClarificationAnswer {
   skipped: boolean
   createdAt: UtcIsoDateTime
   updatedAt: UtcIsoDateTime
+}
+
+export type ClarificationRoundStatus = 'ACTIVE' | 'READY' | 'GENERATING' | 'STALE'
+
+export interface ClarificationRound {
+  id: Uuid
+  projectId: Uuid
+  roundNo: number
+  requestId: string
+  contextVersion: string
+  questionIds: Uuid[]
+  coverageCategories: string[]
+  status: ClarificationRoundStatus
+  createdAt: UtcIsoDateTime
+  generatedAt: UtcIsoDateTime
 }
 
 export type ConflictStatus = 'OPEN' | 'RESOLVED'

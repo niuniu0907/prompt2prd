@@ -1,17 +1,20 @@
 <script setup lang="ts">
 import { computed, inject, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { routeLocationKey, useRouter } from 'vue-router'
-import { createAnalysisClient, type AnalysisAnswersRequestBody, type AnalysisCallbacks } from '@/api/analysisApi'
+import { createAnalysisClient, type AnalysisAnswersRequestBody, type AnalysisCallbacks, type GenerateRoundRequestBody } from '@/api/analysisApi'
 import { isModelSetupErrorMessage, validateAnalysisModelSettings } from '@/api/modelSettingsValidation'
 import { analysisStateRepository, type AnalysisState, type AnalysisStateStore } from '@/db/repositories/analysisStateRepository'
 import { clarificationRepository, type ClarificationSubmitter, type SubmitBatchResult } from '@/db/repositories/clarificationRepository'
+import { clarificationRoundRepository } from '@/db/repositories/clarificationRoundRepository'
 import {
   projectRepository,
   type ProjectSourceRepository,
 } from '@/db/repositories/projectRepository'
-import type { ClarificationAnswer, ClarificationQuestion } from '@/features/requirements/types'
+import type { ClarificationAnswer, ClarificationQuestion, ClarificationRound } from '@/features/requirements/types'
 import { useModelConfigStore } from '@/stores/modelConfigStore'
+import { useAnalysisRoundStore } from '@/stores/analysisRoundStore'
 import QuestionBatch from './QuestionBatch.vue'
+import QuestionSkeleton from './QuestionSkeleton.vue'
 import type { QuestionAnswerDraft } from './answerTypes'
 import { activeCoverageKeys, prdCoverageAreas } from './prdCoverage'
 
@@ -37,6 +40,7 @@ const clarification = props.clarification ?? clarificationRepository
 const sourceRepository = props.sourceRepository ?? projectRepository
 const client = props.client ?? createAnalysisClient()
 const modelConfig = useModelConfigStore()
+const roundStore = useAnalysisRoundStore()
 const state = ref<AnalysisState | null>(null)
 const busy = ref(false)
 const loading = ref(true)
@@ -45,34 +49,26 @@ const completedMessage = ref('')
 const supplementOpen = ref(false)
 const supplementalIdea = ref('')
 const currentBatchAnchor = ref<HTMLElement | null>(null)
-const followUpBusy = ref(false)
-const automaticFollowUpAttempted = ref(false)
 const sourceEditorOpen = ref(false)
 const originalPromptDraft = ref('')
 const sourceSaving = ref(false)
 const sourceError = ref('')
 
-const pendingQuestions = computed(() => state.value?.questions.filter(question => question.status === 'PENDING') ?? [])
-const currentBatch = computed(() => {
-  const first = [...pendingQuestions.value]
-    .sort((a, b) => a.createdAt.localeCompare(b.createdAt) || b.priority - a.priority)[0]
-  return first
-    ? pendingQuestions.value
-        .filter(question => question.batchId === first.batchId)
-        .sort((a, b) => b.priority - a.priority)
-        .slice(0, 10)
-    : []
-})
-const currentCoverageKeys = computed(() => activeCoverageKeys(currentBatch.value))
-const currentBatchKey = computed(() => currentBatch.value.map(question => question.id).join('|'))
+// Round-driven: use store state instead of batch-based grouping
+const currentRoundQuestions = computed(() => roundStore.currentRoundQuestions)
+const currentCoverageKeys = computed(() => activeCoverageKeys(currentRoundQuestions.value))
+const currentRoundKey = computed(() =>
+  `${roundStore.currentRoundNo}:${currentRoundQuestions.value.map(q => q.id).join('|')}`
+)
 const originalPromptExcerpt = computed(() => {
   const text = state.value?.project.originalPrompt?.trim()
   if (!text) return ''
   return text.length > 120 ? `${text.slice(0, 120)}...` : text
 })
-const canSubmitSupplement = computed(() => Boolean(supplementalIdea.value.trim()) && !busy.value && !followUpBusy.value)
-const canRetrySavedAnswers = computed(() => Boolean(state.value?.answers.length) && !busy.value && !followUpBusy.value)
+const canSubmitSupplement = computed(() => Boolean(supplementalIdea.value.trim()) && !busy.value)
+const canRetrySavedAnswers = computed(() => Boolean(state.value?.answers.length) && !busy.value)
 const needsModelSetup = computed(() => isModelSetupErrorMessage(errorMessage.value))
+const hasGenerationError = computed(() => roundStore.generationError !== null)
 const sufficientCompletenessThreshold = 80
 const canGeneratePrd = computed(() => {
   const completeness = state.value?.completeness
@@ -97,40 +93,52 @@ const completionDescription = computed(() => {
   }
   return `当前完整度为 ${total}%，系统会继续生成下一轮问题来补齐关键需求。`
 })
-const followUpStatusMessage = computed(() => currentBatch.value.length
-  ? 'AI 正在后台整理上一轮回答并生成后续问题，你可以继续填写当前轮。'
-  : 'AI 正在生成下一轮问题，生成完成后会直接显示在当前页面。')
+const followUpStatusMessage = computed(() =>
+  roundStore.isLoadingNextRound
+    ? 'AI 正在后台生成下一轮问题，生成完成后会直接显示在当前页面。'
+    : ''
+)
 
+// Auto-trigger pre-generation when round 1 is loaded and no next round exists
 watch(
-  [loading, currentBatchKey, followUpBusy, busy, needsMoreClarification],
-  () => { void continueClarificationAutomatically() },
+  [loading, currentRoundKey, busy, needsMoreClarification],
+  () => { void triggerPreGenerationIfNeeded() },
   { flush: 'post' },
 )
 
-async function continueClarificationAutomatically() {
-  if (loading.value || busy.value || followUpBusy.value) return
+async function triggerPreGenerationIfNeeded() {
+  if (loading.value || busy.value) return
   if (errorMessage.value) return
-  if (!state.value || currentBatch.value.length || !needsMoreClarification.value) return
-  if (automaticFollowUpAttempted.value) return
-  automaticFollowUpAttempted.value = true
-  await requestNextRound('AI 已生成下一轮追问。', 'AI 暂时没有生成新的追问，你可以补充想法后继续。')
+  if (!state.value || currentRoundQuestions.value.length === 0) return
+  if (roundStore.hasReadyNextRound) return
+  if (roundStore.generatingRoundNo !== null) return
+  if (!needsMoreClarification.value && roundStore.currentRoundNo > 1) return
+  await triggerPreGeneration()
 }
 
 onMounted(async () => {
   try {
     const loadedState = await stateStore.load(projectId.value)
     state.value = loadedState ?? null
+    if (loadedState) {
+      // Recover round state from IndexedDB
+      await roundStore.recover(projectId.value)
+      // If no round data yet (legacy project), initialize Round 1 from existing questions
+      if (roundStore.allQuestions.size === 0 && loadedState.questions.length > 0) {
+        roundStore.setCurrentRoundQuestions(1, loadedState.questions)
+      }
+    }
   }
   catch (error) { errorMessage.value = readableError(error) }
   finally {
     loading.value = false
     await nextTick()
-    void continueClarificationAutomatically()
+    void triggerPreGenerationIfNeeded()
   }
 })
 onBeforeUnmount(() => client.cancel())
 
-watch(currentBatchKey, async (value, oldValue) => {
+watch(currentRoundKey, async (value, oldValue) => {
   if (!value || !oldValue || value === oldValue) return
   await nextTick()
   currentBatchAnchor.value?.scrollIntoView?.({ block: 'start', behavior: 'smooth' })
@@ -147,49 +155,116 @@ async function submit(drafts: QuestionAnswerDraft[]) {
   }
   busy.value = true; errorMessage.value = ''; completedMessage.value = ''
   try {
+    // 1. Persist answers to IndexedDB immediately
     const persisted = await clarification.submitBatch(projectId.value, drafts)
-    const questionMap = new Map(state.value.questions.map(question => [question.id, question]))
-    for (const question of persisted.questions) questionMap.set(question.id, question)
-    const answerMap = new Map(state.value.answers.map(answer => [answer.questionId, answer]))
-    for (const answer of persisted.answers) answerMap.set(answer.questionId, answer)
-    const localState: AnalysisState = { ...state.value, questions: [...questionMap.values()], answers: [...answerMap.values()] }
+    const localState = mergePersistedAnswers(state.value, persisted)
     state.value = localState
-    if (hasPendingQuestions(localState)) {
-      completedMessage.value = '本轮回答已保存，已切换到下一轮；AI 正在后台整理本轮回答。'
-      void prefetchFollowUp(localState, settings)
-      return
+    completedMessage.value = '回答已保存'
+
+    // 2. Send answers to backend for requirement processing (async, fire-and-forget for UX)
+    const answerProcessingPromise = client.submitAnswers({
+      state: toServerState(localState),
+      answers: toAnswerTurns(localState.questions, localState.answers),
+      originalInput: originalProjectInput(localState),
+      missingInformation: localState.requirements.filter(item => item.type === 'MISSING_INFORMATION').map(item => item.content),
+      modelSettings: settings,
+    }).then(finalState => {
+      state.value = stateStore.saveFinal(projectId.value, finalState).then(saved => {
+        state.value = saved
+        notifyAnalysisStateSaved()
+        return saved
+      }) as unknown as AnalysisState
+    }).catch(error => {
+      console.warn('Background answer processing failed:', error)
+      // Don't show error - answers are already saved locally
+    })
+
+    // 3. Activate pre-generated next round or show loading
+    if (roundStore.hasReadyNextRound) {
+      roundStore.activateNextRound()
+      completedMessage.value = '已切换到下一轮；AI 正在后台整理回答并准备后续问题。'
+      busy.value = false
+      // Trigger pre-generation for N+2 round
+      void triggerPreGeneration()
+    } else {
+      completedMessage.value = '回答已保存，正在生成下一轮问题...'
+      busy.value = false
+      // Generate next round now (this is the fallback path)
+      void triggerPreGeneration()
     }
-    if (followUpBusy.value) {
-      completedMessage.value = '本轮回答已保存，AI 正在生成下一轮问题。'
-      return
-    }
-    await requestFollowUp(localState, settings, undefined, 'AI 已根据回答更新需求，并生成下一轮追问。', 'AI 已根据回答更新需求，当前没有新的追问。')
-  } catch (error) { errorMessage.value = readableError(error) }
-  finally { busy.value = false }
+
+    // Ensure answer processing completes
+    await answerProcessingPromise
+  } catch (error) {
+    errorMessage.value = readableError(error)
+    busy.value = false
+  }
 }
 
-async function prefetchFollowUp(sourceState: AnalysisState, settings: unknown) {
-  if (followUpBusy.value) return
-  followUpBusy.value = true
+/** Triggers background pre-generation of the next round (N+1). */
+async function triggerPreGeneration() {
+  if (!state.value) return
+  const nextRoundNo = roundStore.currentRoundNo + 1
+  const requestId = crypto.randomUUID()
+
+  if (!roundStore.shouldStartGeneration(nextRoundNo, requestId)) {
+    return
+  }
+
+  roundStore.startGeneration(nextRoundNo, requestId)
+  const settings = props.modelSettings ?? requestModelSettings()
+
   try {
-    const finalState = await client.submitAnswers({
-      state: toServerState(sourceState),
-      answers: toAnswerTurns(sourceState.questions, sourceState.answers),
-      originalInput: originalProjectInput(sourceState),
-      missingInformation: sourceState.requirements.filter(item => item.type === 'MISSING_INFORMATION').map(item => item.content),
+    const currentQuestions = roundStore.currentRoundQuestions
+    const body: GenerateRoundRequestBody = {
+      state: toServerState(state.value),
+      targetRoundNo: nextRoundNo,
+      coveredAreas: [...roundStore.coveredAreas],
+      currentVisibleQuestions: currentQuestions.map(q => ({
+        text: q.text,
+        targetField: q.targetField,
+        semanticKey: q.semanticKey,
+      })),
+      missingInformation: state.value.requirements
+        .filter(item => item.type === 'MISSING_INFORMATION')
+        .map(item => item.content),
       modelSettings: settings,
-    })
-    const latest = state.value ?? sourceState
-    const merged = mergeFollowUpState(latest, finalState as AnalysisState)
-    state.value = await stateStore.saveFinal(projectId.value, merged)
-    notifyAnalysisStateSaved()
-    completedMessage.value = currentBatch.value.length
-      ? 'AI 已生成后续问题，当前页会继续显示下一轮。'
-      : 'AI 已更新需求，当前没有新的追问。'
+    }
+
+    const result = await client.generateRound(body)
+
+    if (result.success && result.questions.length > 0) {
+      const questions = result.questions as ClarificationQuestion[]
+      roundStore.completeGeneration(nextRoundNo, questions, requestId)
+
+      // Persist round to IndexedDB
+      const round: ClarificationRound = {
+        id: crypto.randomUUID(),
+        projectId: projectId.value,
+        roundNo: nextRoundNo,
+        requestId: result.requestId,
+        contextVersion: String(roundStore.contextVersion),
+        questionIds: questions.map(q => q.id),
+        coverageCategories: result.coverageCategories,
+        status: 'READY',
+        createdAt: new Date().toISOString(),
+        generatedAt: new Date().toISOString(),
+      }
+      await clarificationRoundRepository.saveRound(round)
+
+      // Save questions to analysis state
+      if (state.value) {
+        const allQuestions = [...state.value.questions, ...questions]
+        state.value = { ...state.value, questions: allQuestions }
+      }
+
+      await roundStore.persist()
+    }
   } catch (error) {
-    errorMessage.value = `下一轮问题生成失败：${readableError(error)}`
-  } finally {
-    followUpBusy.value = false
+    roundStore.markGenerationFailed(nextRoundNo,
+      error instanceof Error ? error.message : 'Generation failed')
+    console.warn('Background round pre-generation failed for round', nextRoundNo, error)
+    // Don't show to user — this is background work
   }
 }
 
@@ -209,28 +284,26 @@ async function submitSupplement() {
   }
   busy.value = true; errorMessage.value = ''; completedMessage.value = ''
   try {
-    automaticFollowUpAttempted.value = false
-    await requestFollowUp(state.value, settings, supplementalInput, 'AI 已根据补充想法生成下一轮追问。', 'AI 已根据补充想法更新需求，当前没有新的追问。')
+    await client.submitAnswers({
+      state: toServerState(state.value),
+      answers: toAnswerTurns(state.value.questions, state.value.answers),
+      originalInput: originalProjectInput(state.value),
+      supplementalInput,
+      missingInformation: state.value.requirements.filter(item => item.type === 'MISSING_INFORMATION').map(item => item.content),
+      modelSettings: settings,
+    })
     supplementalIdea.value = ''
     supplementOpen.value = false
+    completedMessage.value = 'AI 已根据补充想法更新需求。'
+    // Trigger new round generation with updated context
+    void triggerPreGeneration()
   } catch (error) { errorMessage.value = readableError(error) }
   finally { busy.value = false }
 }
 
-async function retrySavedAnswers() {
-  if (!state.value || busy.value || followUpBusy.value) return
-  const settings = props.modelSettings ?? requestModelSettings()
-  const validation = validateAnalysisModelSettings(settings)
-  if (validation) {
-    errorMessage.value = validation
-    completedMessage.value = ''
-    return
-  }
-  busy.value = true; errorMessage.value = ''; completedMessage.value = ''
-  try {
-    await requestFollowUp(state.value, settings, undefined, 'AI 已重新处理保存的回答，并生成下一轮追问。', 'AI 已重新处理保存的回答，当前没有新的追问。')
-  } catch (error) { errorMessage.value = readableError(error) }
-  finally { busy.value = false }
+async function retryFailedGeneration() {
+  roundStore.markGenerationFailed(roundStore.generatingRoundNo ?? 0)
+  await triggerPreGeneration()
 }
 
 function openOriginalEditor() {
@@ -258,66 +331,6 @@ async function saveOriginalPrompt() {
     sourceError.value = readableError(error)
   } finally {
     sourceSaving.value = false
-  }
-}
-
-async function requestFollowUp(
-  sourceState: AnalysisState,
-  settings: unknown,
-  supplementalInput: string | undefined,
-  nextRoundMessage: string,
-  noQuestionMessage: string,
-) {
-  const finalState = await client.submitAnswers({
-    state: toServerState(sourceState),
-    answers: toAnswerTurns(sourceState.questions, sourceState.answers),
-    originalInput: originalProjectInput(sourceState),
-    supplementalInput,
-    missingInformation: sourceState.requirements.filter(item => item.type === 'MISSING_INFORMATION').map(item => item.content),
-    modelSettings: settings,
-  })
-  state.value = await stateStore.saveFinal(projectId.value, finalState)
-  notifyAnalysisStateSaved()
-  completedMessage.value = currentBatch.value.length ? nextRoundMessage : noQuestionMessage
-}
-
-async function requestNextRound(nextRoundMessage: string, noQuestionMessage: string) {
-  if (!state.value || busy.value || followUpBusy.value) return
-  const settings = props.modelSettings ?? requestModelSettings()
-  const validation = validateAnalysisModelSettings(settings)
-  if (validation) {
-    errorMessage.value = validation
-    completedMessage.value = ''
-    return
-  }
-  followUpBusy.value = true
-  errorMessage.value = ''
-  completedMessage.value = ''
-  try {
-    await requestFollowUp(state.value, settings, undefined, nextRoundMessage, noQuestionMessage)
-  } catch (error) {
-    errorMessage.value = `下一轮问题生成失败：${readableError(error)}`
-  } finally {
-    followUpBusy.value = false
-  }
-}
-
-function mergeFollowUpState(latest: AnalysisState, incoming: AnalysisState): AnalysisState {
-  const questionMap = new Map(incoming.questions.map(question => [question.id, question]))
-  for (const question of latest.questions) questionMap.set(question.id, question)
-  const answerMap = new Map(incoming.answers.map(answer => [answer.questionId, answer]))
-  for (const answer of latest.answers) answerMap.set(answer.questionId, answer)
-  return {
-    ...incoming,
-    project: {
-      ...latest.project,
-      name: incoming.project.name,
-      language: incoming.project.language,
-      stage: incoming.project.stage,
-      completeness: incoming.completeness.total,
-    },
-    questions: [...questionMap.values()],
-    answers: [...answerMap.values()],
   }
 }
 
@@ -351,9 +364,6 @@ function originalProjectInput(value: AnalysisState) {
 }
 function requestModelSettings() { return { ...modelConfig.requestKeyConfig, provider: modelConfig.provider, baseUrl: modelConfig.baseUrl || undefined, model: modelConfig.model, parameters: { temperature: modelConfig.temperature } } }
 function readableError(error: unknown) { return error instanceof Error ? error.message : '提交失败，已保留本地回答。' }
-function hasPendingQuestions(value: AnalysisState) {
-  return value.questions.some(question => question.status === 'PENDING')
-}
 function notifyAnalysisStateSaved() {
   window.dispatchEvent(new CustomEvent('prompt2prd:analysis-state-saved', { detail: { projectId: projectId.value } }))
 }
@@ -426,54 +436,48 @@ function goToModelSettings() {
         <button v-if="needsModelSetup" type="button" class="button-primary" @click="goToModelSettings">前往模型设置</button>
       </div>
       <div v-if="completedMessage" class="wizard-view__success">{{ completedMessage }}</div>
-      <div v-if="followUpBusy" class="wizard-view__notice" role="status">{{ followUpStatusMessage }}</div>
-      <section v-if="currentBatch.length" ref="currentBatchAnchor" class="wizard-view__intro">
+      <div v-if="roundStore.isLoadingNextRound && !busy" class="wizard-view__notice" role="status">{{ followUpStatusMessage }}</div>
+      <div v-if="hasGenerationError" class="wizard-view__error" role="alert">
+        <span>{{ roundStore.generationError }}</span>
+        <button type="button" class="button-primary" @click="retryFailedGeneration">重新生成</button>
+      </div>
+      <!-- Round header -->
+      <section v-if="currentRoundQuestions.length" ref="currentBatchAnchor" class="wizard-view__intro">
         <div>
           <span>AI 需求访谈</span>
-          <h1>集中回答本轮关键问题</h1>
-          <p>AI 已读取你的初始需求，并把当前最值得确认的问题放在同一轮。每轮最多 10 题，提交后页面会切到下一轮。</p>
+          <h1>第 {{ roundStore.currentRoundNo }} 轮 · 共 {{ currentRoundQuestions.length }} 题</h1>
+          <p>AI 已读取你的初始需求，并把当前最值得确认的问题放在同一轮。每轮 8-10 题，提交后页面会切到下一轮。</p>
           <button type="button" class="wizard-view__link-button" @click="openOriginalEditor">编辑原始需求</button>
         </div>
         <p v-if="originalPromptExcerpt" class="wizard-view__source">初始想法：{{ originalPromptExcerpt }}</p>
-        <div class="wizard-view__coverage" aria-label="PRD 覆盖清单">
-          <b>最终 PRD 至少覆盖</b>
+        <div v-if="roundStore.currentRoundInfo.coverageCategories.length" class="wizard-view__coverage" aria-label="本轮覆盖分类">
+          <b>本轮主要覆盖</b>
           <ul>
-            <li
-              v-for="area in prdCoverageAreas"
-              :key="area.key"
-              :class="{ 'is-active': currentCoverageKeys.has(area.key) }"
-            >
-              {{ area.label }}
+            <li v-for="cat in roundStore.currentRoundInfo.coverageCategories" :key="cat" class="is-active">
+              {{ cat }}
             </li>
           </ul>
         </div>
       </section>
+      <!-- Questions -->
       <QuestionBatch
-        v-if="currentBatch.length"
-        :questions="currentBatch"
+        v-if="currentRoundQuestions.length"
+        :questions="currentRoundQuestions"
         :busy="busy"
         :can-generate-prd="canGeneratePrd"
+        :round-no="roundStore.currentRoundNo"
         @submit="submit"
         @generate-prd="generatePrdFromCurrentAnswers"
       />
-      <section v-else-if="followUpBusy" class="wizard-view__empty">
-        <span>AI 需求访谈</span>
-        <h1>AI 正在生成下一轮问题</h1>
-        <p>刚刚提交的回答已经保存在本地。下一轮生成完成后，会在当前页面直接显示。</p>
-        <div class="wizard-view__actions">
-          <button v-if="canGeneratePrd" type="button" class="button-primary" @click="goToPrd">生成PRD</button>
-          <button type="button" class="wizard-view__secondary" @click="openOriginalEditor">编辑原始需求</button>
-        </div>
-      </section>
+      <!-- Skeleton loading -->
+      <QuestionSkeleton v-else-if="roundStore.isLoadingNextRound && !busy" :count="8" />
+      <!-- Empty / complete state -->
       <section v-else class="wizard-view__empty">
         <span>AI 需求访谈</span>
         <h1>{{ completionTitle }}</h1>
         <p>{{ completionDescription }}</p>
         <div class="wizard-view__actions">
-          <button v-if="needsMoreClarification" type="button" class="button-primary" :disabled="followUpBusy" @click="requestNextRound('AI 已生成下一轮追问。', 'AI 暂时没有生成新的追问，你可以补充想法后继续。')">
-            {{ followUpBusy ? '正在生成…' : '生成下一轮问题' }}
-          </button>
-          <button v-else type="button" class="button-primary" @click="goToPrd">
+          <button v-if="canGeneratePrd" type="button" class="button-primary" @click="goToPrd">
             生成PRD
           </button>
           <button type="button" class="wizard-view__secondary" @click="supplementOpen = true">

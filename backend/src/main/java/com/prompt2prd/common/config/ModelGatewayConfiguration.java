@@ -9,7 +9,9 @@ import org.springframework.context.annotation.Configuration;
 public class ModelGatewayConfiguration {
 
     @Bean
-    ModelGateway modelGateway() {
-        return new SpringAiModelGateway();
+    ModelGateway modelGateway(GenerationProperties generationProperties) {
+        return new SpringAiModelGateway(
+                com.prompt2prd.model.adapter.EndpointAddressPolicy.fromEnvironment(),
+                generationProperties);
     }
 }
