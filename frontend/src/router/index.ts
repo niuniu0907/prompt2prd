@@ -3,7 +3,7 @@ import { createRouter, createWebHistory, type RouterHistory } from 'vue-router'
 import ProjectHomeView from '@/views/ProjectHomeView.vue'
 import NewProjectView from '@/views/NewProjectView.vue'
 import ProjectWorkspace from '@/layouts/ProjectWorkspace.vue'
-import ProjectModulePlaceholder from '@/views/ProjectModulePlaceholder.vue'
+import ProjectEntryView from '@/views/ProjectEntryView.vue'
 import ModelSettingsView from '@/views/ModelSettingsView.vue'
 import AnalysisView from '@/features/analysis/AnalysisView.vue'
 import QuestionWizardView from '@/features/analysis/QuestionWizardView.vue'
@@ -37,10 +37,7 @@ export function createAppRouter(history: RouterHistory = createWebHistory()) {
         children: [
           {
             path: '',
-            redirect: (to) => ({
-              name: 'project-overview',
-              params: { projectId: to.params.projectId },
-            }),
+            component: ProjectEntryView,
           },
           {
             path: 'overview',

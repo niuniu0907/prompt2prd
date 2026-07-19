@@ -115,6 +115,7 @@ export const useAnalysisRoundStore = defineStore('analysisRound', () => {
       return
     }
 
+    inflightRequests.delete(roundNo)
     setCurrentRoundQuestions(roundNo, questions)
     readyNextRoundNo.value = roundNo
     generatingRoundNo.value = null
@@ -123,6 +124,7 @@ export const useAnalysisRoundStore = defineStore('analysisRound', () => {
   }
 
   function markGenerationFailed(roundNo: number, error?: string) {
+    inflightRequests.delete(roundNo)
     if (generatingRoundNo.value === roundNo) {
       generatingRoundNo.value = null
       generationRequestId.value = null
@@ -158,7 +160,7 @@ export const useAnalysisRoundStore = defineStore('analysisRound', () => {
 
   // --- Persistence ---
 
-  async function persist(database: AppDatabase = appDatabase) {
+  async function persist(projectId: string, database: AppDatabase = appDatabase) {
     const state: RoundPersistenceState = {
       currentRoundNo: currentRoundNo.value,
       readyNextRoundNo: readyNextRoundNo.value,
@@ -167,7 +169,7 @@ export const useAnalysisRoundStore = defineStore('analysisRound', () => {
       contextVersion: contextVersion.value,
     }
     await database.app_setting.put({
-      key: roundStateKey(),
+      key: roundStateKey(projectId),
       value: state,
       updatedAt: new Date().toISOString(),
     })
@@ -175,7 +177,7 @@ export const useAnalysisRoundStore = defineStore('analysisRound', () => {
 
   async function recover(projectId: string, database: AppDatabase = appDatabase) {
     // Load round state from app_setting
-    const record = await database.app_setting.get(roundStateKey())
+    const record = await database.app_setting.get(roundStateKey(projectId))
     if (record?.value) {
       const saved = record.value as RoundPersistenceState
       if (saved.currentRoundNo) currentRoundNo.value = saved.currentRoundNo
@@ -203,10 +205,13 @@ export const useAnalysisRoundStore = defineStore('analysisRound', () => {
       .where('projectId').equals(projectId)
       .toArray()
 
-    // Restore ready next round
-    const readyRound = rounds.find(r => r.status === 'READY')
-    if (readyRound && !readyNextRoundNo.value) {
-      readyNextRoundNo.value = readyRound.roundNo
+    // Restore ready next round: prefer the nearest READY round after the current round
+    const readyRounds = rounds.filter(r => r.status === 'READY').sort((a, b) => a.roundNo - b.roundNo)
+    if (readyRounds.length && !readyNextRoundNo.value) {
+      // Pick the smallest READY roundNo >= currentRoundNo; otherwise pick the largest overall
+      const current = currentRoundNo.value
+      const upcoming = readyRounds.filter(r => r.roundNo >= current)
+      readyNextRoundNo.value = upcoming.length > 0 ? upcoming[0].roundNo : readyRounds[readyRounds.length - 1].roundNo
     }
 
     // Restore stale rounds
@@ -300,8 +305,6 @@ export const useAnalysisRoundStore = defineStore('analysisRound', () => {
   }
 })
 
-function roundStateKey(): `roundState:${string}` {
-  // We need context - this gets called from the store which doesn't have projectId
-  // The key will be set dynamically when project context is available
-  return 'roundState:current' as const
+function roundStateKey(projectId: string): `roundState:${string}` {
+  return `roundState:${projectId}`
 }

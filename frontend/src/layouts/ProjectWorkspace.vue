@@ -70,21 +70,23 @@ const hasAnalysisContent = computed(() => Boolean(analysisState.value)
     || (analysisState.value?.questions.length ?? 0) > 0
     || (analysisState.value?.answers.length ?? 0) > 0
     || (analysisState.value?.conflicts.length ?? 0) > 0))
-const sufficientCompletenessThreshold = 80
-const canGeneratePrd = computed(() => hasAnalysisContent.value
-  && totalProgress.value >= sufficientCompletenessThreshold
-  && coreConflictCount.value === 0)
+// 首次AI分析成功后即可生成PRD；完整度和冲突只做提示，不阻塞生成
+const canGeneratePrd = computed(() => hasAnalysisContent.value)
 const generateHint = computed(() => {
   if (!hasAnalysisContent.value) return '首次 AI 解析完成后会进入 AI 澄清。'
   const waiting = pendingRequirements.value.length + unanalyzedRequirements.value.length + pendingQuestions.value.length
+  const parts: string[] = []
   if (coreConflictCount.value > 0) {
-    return `当前完整度为 ${totalProgress.value}%，仍有 ${coreConflictCount.value} 个核心冲突。请先处理冲突或继续澄清。`
+    parts.push(`仍有 ${coreConflictCount.value} 个核心冲突`)
   }
-  if (totalProgress.value < sufficientCompletenessThreshold) {
-    return `当前完整度为 ${totalProgress.value}%，信息还不够完整，请继续在 AI 澄清中回答下一轮问题。`
+  if (totalProgress.value < 80) {
+    parts.push(`当前完整度 ${totalProgress.value}%，仍有 ${unanalyzedRequirements.value.length} 项待分析`)
   }
   if (waiting > 0) {
-    return `当前完整度为 ${totalProgress.value}%，已达到生成条件；仍有 ${waiting} 项待确认或待分析，可继续澄清后再生成。`
+    parts.push(`还有 ${waiting} 项待确认`)
+  }
+  if (parts.length > 0) {
+    return `${parts.join('；')}。可以继续澄清，也可以先生成 PRD 草稿。`
   }
   return '关键信息已达到生成条件，可以生成PRD。你也可以继续补充细节。'
 })

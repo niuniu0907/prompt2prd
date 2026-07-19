@@ -31,9 +31,12 @@ public final class PrdStreamOrchestrator {
             StreamEventSequence events = new StreamEventSequence(execution.requestId());
             List<String> completed = new ArrayList<>();
             List<String> failed = new ArrayList<>();
-            Flux<StreamEvent> sections = Flux.concat(execution.plan().sections().stream()
-                    .map(section -> streamSection(execution.modelContext(), section, events, completed, failed))
-                    .toList());
+            // Limited concurrency of 2 to avoid model rate-limiting while still
+            // being faster than fully serial Flux.concat
+            Flux<StreamEvent> sections = Flux.fromIterable(execution.plan().sections())
+                    .flatMapSequential(
+                            section -> streamSection(execution.modelContext(), section, events, completed, failed),
+                            2); // max concurrency
             return sections.concatWith(Mono.fromSupplier(() -> events.next(
                             StreamEventType.GENERATION_COMPLETED,
                             Map.of("nextStage", "PRD_EDITING", "finalState",

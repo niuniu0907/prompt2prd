@@ -54,7 +54,7 @@ public final class RoundQuestionGenerator {
                       "semanticKey": { "type": "string" },
                       "inputType": {
                         "type": "string",
-                        "enum": ["SINGLE_SELECT", "MULTI_SELECT", "CUSTOM_TEXT", "SELECT_WITH_CUSTOM", "AI_RECOMMENDED"]
+                        "enum": ["SINGLE_SELECT", "MULTI_SELECT", "CUSTOM_TEXT", "SINGLE_SELECT_CUSTOM", "MULTI_SELECT_CUSTOM", "AI_RECOMMENDED"]
                       },
                       "options": {
                         "type": "array",

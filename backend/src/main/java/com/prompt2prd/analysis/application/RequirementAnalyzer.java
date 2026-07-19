@@ -470,15 +470,43 @@ public final class RequirementAnalyzer implements AnalysisEngine {
     }
 
     private String prompt(AnalysisContextBuilder.AnalysisContext context, String currentInput) {
-        return "Project=" + context.project().name()
-                + "\nLanguage=" + context.language()
-                + "\nCurrent input=" + currentInput
-                + "\nCurrent requirements=" + RequirementFormatter.compactSummary(context.currentRequirements())
-                + "\nLocked requirements=" + RequirementFormatter.compactSummary(context.lockedRequirements())
-                + "\nAnswer history=" + context.answerHistory()
-                + "\nMissing information=" + context.missingInformation()
-                + "\nPRD coverage checklist=\n" + PrdCoverageArea.promptChecklist()
-                + "\nOutput schema=" + context.outputSchema();
+        StringBuilder sb = new StringBuilder();
+        sb.append("Project=").append(context.project().name())
+                .append("\nLanguage=").append(context.language())
+                .append("\nCurrent input=").append(truncate(currentInput, 2000))
+                .append("\nCurrent requirements=").append(RequirementFormatter.compactSummary(context.currentRequirements()))
+                .append("\nLocked requirements=").append(RequirementFormatter.compactSummary(context.lockedRequirements()));
+
+        // Compact answer history — no UUIDs, timestamps, or batch IDs
+        if (!context.answerHistory().isEmpty()) {
+            sb.append("\nAnswer history (recent first):\n");
+            List<AnalysisContextBuilder.QuestionAnswerTurn> recent = context.answerHistory().stream()
+                    .sorted(java.util.Comparator.comparing(AnalysisContextBuilder.QuestionAnswerTurn::answeredAt).reversed())
+                    .limit(60) // ~6 rounds × 10 questions
+                    .toList();
+            for (var turn : recent) {
+                sb.append("Q: ").append(truncate(turn.question(), 200))
+                        .append("\nA: ").append(truncate(turn.answer(), 200))
+                        .append("\n\n");
+            }
+        }
+
+        // Compact missing information
+        if (!context.missingInformation().isEmpty()) {
+            sb.append("\nMissing information:\n");
+            for (String gap : context.missingInformation()) {
+                sb.append("- ").append(truncate(gap, 200)).append("\n");
+            }
+        }
+
+        sb.append("\nPRD coverage checklist=\n").append(PrdCoverageArea.promptChecklist())
+                .append("\nOutput schema=").append(context.outputSchema());
+        return sb.toString();
+    }
+
+    private static String truncate(String value, int maxLength) {
+        if (value == null || value.length() <= maxLength) return value;
+        return value.substring(0, maxLength) + "...";
     }
 
     private Throwable mapRetryableFailure(Throwable failure) {

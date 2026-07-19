@@ -6,6 +6,7 @@ import { isModelSetupErrorMessage, validateAnalysisModelSettings } from '@/api/m
 import { analysisStateRepository, type AnalysisState, type AnalysisStateStore } from '@/db/repositories/analysisStateRepository'
 import { clarificationRepository, type ClarificationSubmitter, type SubmitBatchResult } from '@/db/repositories/clarificationRepository'
 import { clarificationRoundRepository } from '@/db/repositories/clarificationRoundRepository'
+import { appDatabase } from '@/db/appDatabase'
 import {
   projectRepository,
   type ProjectSourceRepository,
@@ -69,29 +70,25 @@ const canSubmitSupplement = computed(() => Boolean(supplementalIdea.value.trim()
 const canRetrySavedAnswers = computed(() => Boolean(state.value?.answers.length) && !busy.value)
 const needsModelSetup = computed(() => isModelSetupErrorMessage(errorMessage.value))
 const hasGenerationError = computed(() => roundStore.generationError !== null)
-const sufficientCompletenessThreshold = 80
-const canGeneratePrd = computed(() => {
-  const completeness = state.value?.completeness
-  if (!completeness) return false
-  return completeness.total >= sufficientCompletenessThreshold
-    && !completeness.hasCoreConflict
-})
+// 首次AI分析成功后即可生成PRD；完整度和冲突只做提示，不阻塞生成
+const canGeneratePrd = computed(() => Boolean(state.value)
+  && (state.value.requirements.length > 0 || state.value.questions.length > 0))
 const needsMoreClarification = computed(() => Boolean(state.value) && !canGeneratePrd.value)
 const completionTitle = computed(() => {
-  if (canGeneratePrd.value) {
-    return '关键信息已达到生成条件，可以生成PRD'
-  }
+  if (canGeneratePrd.value) return '关键信息已达到生成条件，可以生成PRD'
   return '还需要继续澄清关键需求'
 })
 const completionDescription = computed(() => {
   const total = state.value?.completeness.total ?? 0
+  const hasConflict = state.value?.completeness.hasCoreConflict ?? false
   if (canGeneratePrd.value) {
-    return '你也可以继续补充细节。生成 PRD 不代表项目结束，后续仍可回来回答问题或修改需求结果。'
+    const warnings: string[] = []
+    if (total < 80) warnings.push(`当前完整度 ${total}%，仍有信息待补齐`)
+    if (hasConflict) warnings.push('仍有核心冲突待处理')
+    const suffix = warnings.length > 0 ? `（${warnings.join('；')}）` : ''
+    return `可以继续澄清，也可以先生成 PRD 草稿。${suffix}`
   }
-  if (state.value?.completeness.hasCoreConflict) {
-    return `当前完整度为 ${total}%，并且仍有核心冲突需要处理。请先处理冲突或继续补充需求，系统不会在这里直接生成 PRD。`
-  }
-  return `当前完整度为 ${total}%，系统会继续生成下一轮问题来补齐关键需求。`
+  return '系统会继续生成下一轮问题来补齐关键需求。'
 })
 const followUpStatusMessage = computed(() =>
   roundStore.isLoadingNextRound
@@ -161,38 +158,33 @@ async function submit(drafts: QuestionAnswerDraft[]) {
     state.value = localState
     completedMessage.value = '回答已保存'
 
-    // 2. Send answers to backend for requirement processing (async, fire-and-forget for UX)
-    const answerProcessingPromise = client.submitAnswers({
+    // 2. Send answers to backend and wait for processing result
+    const finalState = await client.submitAnswers({
       state: toServerState(localState),
       answers: toAnswerTurns(localState.questions, localState.answers),
       originalInput: originalProjectInput(localState),
       missingInformation: localState.requirements.filter(item => item.type === 'MISSING_INFORMATION').map(item => item.content),
       modelSettings: settings,
-    }).then(async (finalState) => {
-      const saved = await stateStore.saveFinal(projectId.value, finalState)
-      state.value = saved
-      notifyAnalysisStateSaved()
-    }).catch(error => {
-      console.warn('Background answer processing failed:', error)
-      // Don't show error - answers are already saved locally
     })
 
-    // 3. Activate pre-generated next round or show loading
+    // 3. Save the returned state before generating next round
+    const savedState = await stateStore.saveFinal(projectId.value, finalState)
+    state.value = savedState
+    notifyAnalysisStateSaved()
+
+    // 4. Mark downstream rounds as stale, then trigger pre-generation with updated state
+    await roundStore.markDownstreamStale(roundStore.currentRoundNo)
+
     if (roundStore.hasReadyNextRound) {
       roundStore.activateNextRound()
       completedMessage.value = '已切换到下一轮；AI 正在后台整理回答并准备后续问题。'
       busy.value = false
-      // Trigger pre-generation for N+2 round
       void triggerPreGeneration()
     } else {
       completedMessage.value = '回答已保存，正在生成下一轮问题...'
       busy.value = false
-      // Generate next round now (this is the fallback path)
       void triggerPreGeneration()
     }
-
-    // Ensure answer processing completes
-    await answerProcessingPromise
   } catch (error) {
     errorMessage.value = readableError(error)
     busy.value = false
@@ -250,13 +242,11 @@ async function triggerPreGeneration() {
       }
       await clarificationRoundRepository.saveRound(round)
 
-      // Save questions to analysis state
-      if (state.value) {
-        const allQuestions = [...state.value.questions, ...questions]
-        state.value = { ...state.value, questions: allQuestions }
-      }
+      // Save generated questions to clarification_question table for recovery
+      await appDatabase.clarification_question.bulkAdd(questions)
 
-      await roundStore.persist()
+      // Persist round store state (round metadata, not questions)
+      await roundStore.persist(projectId.value)
     }
   } catch (error) {
     roundStore.markGenerationFailed(nextRoundNo,
@@ -282,7 +272,7 @@ async function submitSupplement() {
   }
   busy.value = true; errorMessage.value = ''; completedMessage.value = ''
   try {
-    await client.submitAnswers({
+    const finalState = await client.submitAnswers({
       state: toServerState(state.value),
       answers: toAnswerTurns(state.value.questions, state.value.answers),
       originalInput: originalProjectInput(state.value),
@@ -290,10 +280,18 @@ async function submitSupplement() {
       missingInformation: state.value.requirements.filter(item => item.type === 'MISSING_INFORMATION').map(item => item.content),
       modelSettings: settings,
     })
+
+    // Save the returned state before generating new round
+    const savedState = await stateStore.saveFinal(projectId.value, finalState)
+    state.value = savedState
+    notifyAnalysisStateSaved()
+
     supplementalIdea.value = ''
     supplementOpen.value = false
     completedMessage.value = 'AI 已根据补充想法更新需求。'
-    // Trigger new round generation with updated context
+
+    // Mark downstream stale then trigger new round generation with updated context
+    await roundStore.markDownstreamStale(roundStore.currentRoundNo)
     void triggerPreGeneration()
   } catch (error) { errorMessage.value = readableError(error) }
   finally { busy.value = false }
