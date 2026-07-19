@@ -23,6 +23,7 @@ export type AppSettingKey =
   | 'uploadPrivacyNoticeAccepted'
   | 'rememberedModelApiKey'
   | `analysisCompleteness:${string}`
+  | `roundState:${string}`
 
 export interface AppSettingRecord {
   key: AppSettingKey

@@ -31,12 +31,13 @@ public final class PrdStreamOrchestrator {
             StreamEventSequence events = new StreamEventSequence(execution.requestId());
             List<String> completed = new ArrayList<>();
             List<String> failed = new ArrayList<>();
-            // Limited concurrency of 2 to avoid model rate-limiting while still
-            // being faster than fully serial Flux.concat
+            // Serial generation via concatMap so that StreamEventSequence.next()
+            // always emits strictly-monotonic IDs. The frontend SSE parser
+            // throws OUT_OF_ORDER_EVENT on any gap, which flatMap concurrency
+            // can cause when two sections interleave their SECTION_DELTA events.
             Flux<StreamEvent> sections = Flux.fromIterable(execution.plan().sections())
-                    .flatMap(
-                            section -> streamSection(execution.modelContext(), section, events, completed, failed),
-                            2); // max concurrency
+                    .concatMap(
+                            section -> streamSection(execution.modelContext(), section, events, completed, failed));
             return sections.concatWith(Mono.fromSupplier(() -> events.next(
                             StreamEventType.GENERATION_COMPLETED,
                             Map.of("nextStage", "PRD_EDITING", "finalState",

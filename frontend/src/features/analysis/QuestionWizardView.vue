@@ -96,23 +96,6 @@ const followUpStatusMessage = computed(() =>
     : ''
 )
 
-// Auto-trigger pre-generation when round 1 is loaded and no next round exists
-watch(
-  [loading, currentRoundKey, busy, needsMoreClarification],
-  () => { void triggerPreGenerationIfNeeded() },
-  { flush: 'post' },
-)
-
-async function triggerPreGenerationIfNeeded() {
-  if (loading.value || busy.value) return
-  if (errorMessage.value) return
-  if (!state.value || currentRoundQuestions.value.length === 0) return
-  if (roundStore.hasReadyNextRound) return
-  if (roundStore.generatingRoundNo !== null) return
-  if (!needsMoreClarification.value && roundStore.currentRoundNo > 1) return
-  await triggerPreGeneration()
-}
-
 onMounted(async () => {
   try {
     const loadedState = await stateStore.load(projectId.value)
@@ -133,8 +116,6 @@ onMounted(async () => {
   catch (error) { errorMessage.value = readableError(error) }
   finally {
     loading.value = false
-    await nextTick()
-    void triggerPreGenerationIfNeeded()
   }
 })
 onBeforeUnmount(() => client.cancel())
@@ -174,21 +155,18 @@ async function submit(drafts: QuestionAnswerDraft[]) {
     // 3. Save the returned state before generating next round
     const savedState = await stateStore.saveFinal(projectId.value, finalState)
     state.value = savedState
+    // Restore pre-generated future-round questions that saveFinal's wholesale delete removed
+    await repersistFutureRoundQuestions()
     notifyAnalysisStateSaved()
 
     // 4. Mark downstream rounds as stale, then trigger pre-generation with updated state
     await roundStore.markDownstreamStale(roundStore.currentRoundNo)
 
-    if (roundStore.hasReadyNextRound) {
-      roundStore.activateNextRound()
-      completedMessage.value = '已切换到下一轮；AI 正在后台整理回答并准备后续问题。'
-      busy.value = false
-      void triggerPreGeneration()
-    } else {
-      completedMessage.value = '回答已保存，正在生成下一轮问题...'
-      busy.value = false
-      void triggerPreGeneration()
-    }
+    // Pre-generation is only triggered AFTER user actions (submit / supplement / retry),
+    // never on page load. This avoids wasting API quota on rounds the user never reaches.
+    completedMessage.value = '回答已保存，正在生成下一轮问题...'
+    busy.value = false
+    void triggerPreGeneration()
   } catch (error) {
     errorMessage.value = readableError(error)
     busy.value = false
@@ -243,23 +221,27 @@ async function triggerPreGeneration() {
         generatedAt: now,
       }
 
-      // Atomic IndexedDB write: round + questions + roundStore metadata
+      // Atomic IndexedDB write: round + questions
       await appDatabase.transaction(
         'rw',
         [
           appDatabase.clarification_round,
           appDatabase.clarification_question,
-          appDatabase.app_setting,
         ],
         async () => {
           await appDatabase.clarification_round.put(round)
           await appDatabase.clarification_question.bulkAdd(questions)
-          await roundStore.persist(projectId.value)
         },
       )
 
-      // Only update Pinia state after successful persistence
+      // Update Pinia state AFTER successful persistence, then persist the
+      // updated state so readyNextRoundNo / coveredAreas / contextVersion
+      // are durable.
       roundStore.completeGeneration(nextRoundNo, questions, requestId)
+      await roundStore.persist(projectId.value)
+
+      // Auto-activate the freshly generated round so the user sees it immediately
+      await roundStore.activateNextRound(projectId.value)
     }
   } catch (error) {
     roundStore.markGenerationFailed(nextRoundNo,
@@ -297,6 +279,7 @@ async function submitSupplement() {
     // Save the returned state before generating new round
     const savedState = await stateStore.saveFinal(projectId.value, finalState)
     state.value = savedState
+    await repersistFutureRoundQuestions()
     notifyAnalysisStateSaved()
 
     supplementalIdea.value = ''
@@ -329,6 +312,7 @@ async function retrySavedAnswers() {
     })
     const savedState = await stateStore.saveFinal(projectId.value, finalState)
     state.value = savedState
+    await repersistFutureRoundQuestions()
     notifyAnalysisStateSaved()
     await roundStore.markDownstreamStale(roundStore.currentRoundNo)
     completedMessage.value = '回答已保存，正在生成下一轮问题...'
@@ -403,6 +387,19 @@ function originalProjectInput(value: AnalysisState) {
 }
 function requestModelSettings() { return { ...modelConfig.requestKeyConfig, provider: modelConfig.provider, baseUrl: modelConfig.baseUrl || undefined, model: modelConfig.model, parameters: { temperature: modelConfig.temperature } } }
 function readableError(error: unknown) { return error instanceof Error ? error.message : '提交失败，已保留本地回答。' }
+/** Re-persist pre-generated (future) round questions that saveFinal's wholesale
+ *  delete removed from the IndexedDB clarification_question store. */
+async function repersistFutureRoundQuestions() {
+  const future: ClarificationQuestion[] = []
+  for (const [roundNo, questions] of roundStore.allQuestions) {
+    if (roundNo > roundStore.currentRoundNo) {
+      future.push(...questions)
+    }
+  }
+  if (future.length > 0) {
+    await appDatabase.clarification_question.bulkPut(future)
+  }
+}
 function notifyAnalysisStateSaved() {
   window.dispatchEvent(new CustomEvent('prompt2prd:analysis-state-saved', { detail: { projectId: projectId.value } }))
 }

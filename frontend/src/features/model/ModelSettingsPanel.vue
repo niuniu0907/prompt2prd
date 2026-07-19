@@ -39,6 +39,7 @@ const capabilityError = ref('')
 const modelListError = ref('')
 let modelListGeneration = 0
 let modelListDebounceTimer: ReturnType<typeof setTimeout> | undefined
+let modelListAbortController: AbortController | undefined
 const resultMessage = ref('')
 const errorMessage = ref('')
 const availableModels = ref<AvailableModel[]>([])
@@ -92,6 +93,10 @@ watch(
 )
 
 function scheduleRefreshModels() {
+  // Immediately invalidate any in-flight model-list request so a stale
+  // response from the old configuration cannot clobber the new result.
+  modelListGeneration++
+  modelListAbortController?.abort()
   if (modelListDebounceTimer !== undefined) clearTimeout(modelListDebounceTimer)
   modelListDebounceTimer = setTimeout(() => {
     modelListDebounceTimer = undefined
@@ -122,12 +127,17 @@ async function refreshModels() {
     modelListError.value = ''
     return
   }
+  // Cancel any previous model-list request still in flight
+  modelListAbortController?.abort()
+  const controller = new AbortController()
+  modelListAbortController = controller
+
   const generation = ++modelListGeneration
   loadingModels.value = true
   modelListError.value = ''
   manualModelAllowed.value = false
   try {
-    const result = await client.listModels(listModelsInput())
+    const result = await client.listModels(listModelsInput(), controller.signal)
     if (generation !== modelListGeneration) return // stale response
     availableModels.value = result.models
     if (result.models.length === 0) {
@@ -139,12 +149,18 @@ async function refreshModels() {
       store.setModel(result.models[0]!.id)
     }
   } catch (error) {
+    // Ignore errors from aborted (stale) requests
+    if (generation !== modelListGeneration) return
+    if (error instanceof DOMException && error.name === 'AbortError') return
     availableModels.value = []
     manualModelAllowed.value = true
     const category = error instanceof ModelConfigApiError ? error.code : 'INTERNAL_ERROR'
     modelListError.value = mapModelListError(category)
   } finally {
-    loadingModels.value = false
+    // Only clear loading state if this is still the latest request
+    if (generation === modelListGeneration) {
+      loadingModels.value = false
+    }
   }
 }
 
