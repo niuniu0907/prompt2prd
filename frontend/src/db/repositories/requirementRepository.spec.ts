@@ -382,6 +382,8 @@ describe('RequirementRepository', () => {
       dimension: 'PAYMENT',
       targetField: 'payment',
       semanticKey: 'payment-methods',
+      roundNo: 1,
+      coverageCategories: [] as string[],
       inputType: 'MULTI_SELECT',
       options: [
         { id: uuid(62), label: '微信支付', impact: '需要微信商户平台', recommended: true },

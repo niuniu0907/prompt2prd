@@ -68,7 +68,9 @@ export const useAnalysisRoundStore = defineStore('analysisRound', () => {
     const merged = new Map<string, ClarificationQuestion>()
     for (const q of existing) merged.set(q.id, q)
     for (const q of questions) merged.set(q.id, q)
-    allQuestions.value.set(roundNo, [...merged.values()])
+    // Deduplicate and limit to top 10 by priority, preserving answered/skipped questions
+    const deduped = deduplicateAndLimitQuestions([...merged.values()], 10)
+    allQuestions.value.set(roundNo, deduped)
 
     // Track covered areas
     for (const q of questions) {
@@ -206,6 +208,10 @@ export const useAnalysisRoundStore = defineStore('analysisRound', () => {
       if (!byRound.has(rn)) byRound.set(rn, [])
       byRound.get(rn)!.push(q)
     }
+    // Cap each round at 10 questions, preserving answered/skipped
+    for (const [rn, qs] of byRound) {
+      byRound.set(rn, deduplicateAndLimitQuestions(qs, 10))
+    }
     allQuestions.value = byRound
 
     // Load rounds from clarification_round table
@@ -315,4 +321,58 @@ export const useAnalysisRoundStore = defineStore('analysisRound', () => {
 
 function roundStateKey(projectId: string): `roundState:${string}` {
   return `roundState:${projectId}`
+}
+
+/**
+ * Deduplicates questions by semanticKey, targetField, and normalized text,
+ * then limits to at most `limit` questions. Already-answered or skipped
+ * questions are preserved (counted toward the limit but never removed).
+ */
+function deduplicateAndLimitQuestions(
+  questions: ClarificationQuestion[],
+  limit: number,
+): ClarificationQuestion[] {
+  if (questions.length <= limit) return questions
+
+  const answered = questions.filter(q => q.status === 'ANSWERED' || q.status === 'SKIPPED')
+  const pending = questions.filter(q => q.status !== 'ANSWERED' && q.status !== 'SKIPPED')
+
+  // Sort pending by priority descending
+  const sorted = [...pending].sort((a, b) => (b.priority ?? 0) - (a.priority ?? 0))
+
+  const seenKeys = new Set<string>()
+  const deduped: ClarificationQuestion[] = []
+
+  // Already-answered questions always stay (they carry user data)
+  for (const q of answered) {
+    deduped.push(q)
+    markSeen(q, seenKeys)
+  }
+
+  // Fill remaining slots with highest-priority deduped unanswered questions
+  for (const q of sorted) {
+    if (deduped.length >= limit) break
+    if (isDuplicate(q, seenKeys)) continue
+    deduped.push(q)
+    markSeen(q, seenKeys)
+  }
+
+  return deduped
+}
+
+function normalizeKey(s: string): string {
+  return (s ?? '').toLowerCase().replace(/[^a-z0-9一-鿿]/g, '')
+}
+
+function isDuplicate(q: ClarificationQuestion, seen: Set<string>): boolean {
+  const sk = `sk:${normalizeKey(q.semanticKey)}`
+  const tf = `tf:${normalizeKey(q.targetField)}`
+  const tx = `tx:${normalizeKey(q.text)}`
+  return seen.has(sk) || seen.has(tf) || seen.has(tx)
+}
+
+function markSeen(q: ClarificationQuestion, seen: Set<string>): void {
+  seen.add(`sk:${normalizeKey(q.semanticKey)}`)
+  seen.add(`tf:${normalizeKey(q.targetField)}`)
+  seen.add(`tx:${normalizeKey(q.text)}`)
 }

@@ -60,12 +60,6 @@ const showSaveStatus = computed(() => Boolean(props.saveStatus))
       >
         生成 PRD
       </button>
-      <span
-        class="project-header__generate-hint"
-        data-testid="header-generate-hint"
-      >
-        {{ generateHint }}
-      </span>
     </div>
   </header>
 </template>
@@ -159,10 +153,4 @@ const showSaveStatus = computed(() => Boolean(props.saveStatus))
   box-shadow: none;
 }
 
-.project-header__generate-hint {
-  flex-basis: 100%;
-  color: var(--color-text-secondary);
-  font-size: 11px;
-  text-align: right;
-}
 </style>

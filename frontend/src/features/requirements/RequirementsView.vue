@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, inject, onMounted, ref } from 'vue'
+import { computed, inject, onMounted, ref, watch } from 'vue'
 import { routeLocationKey, useRouter } from 'vue-router'
 import { analysisStateRepository, type AnalysisState } from '@/db/repositories/analysisStateRepository'
 import { requirementRepository, type ManualRequirementEdit } from '@/db/repositories/requirementRepository'
@@ -12,6 +12,7 @@ import {
   requirementGroupOrder,
   requirementGroupDefaultOpen,
 } from './requirementDisplay'
+import { useToast } from '@/composables/useToast'
 import RequirementGroup from './RequirementGroup.vue'
 import RequirementListItem from './RequirementListItem.vue'
 import RequirementDetailDrawer from './RequirementDetailDrawer.vue'
@@ -20,9 +21,11 @@ import StatusFilter, { type StatusFilterValue } from './StatusFilter.vue'
 const route = inject(routeLocationKey, null)
 const router = useRouter()
 const projectId = computed(() => String(route?.params.projectId ?? ''))
+const { success: showSuccess, error: showError } = useToast()
 
 const state = ref<AnalysisState | null>(null)
 const versions = ref<RequirementVersion[]>([])
+const versionsLoaded = ref(false)
 const loading = ref(true)
 const busy = ref(false)
 const errorMessage = ref('')
@@ -31,6 +34,8 @@ const infoMessage = ref('')
 const activeFilter = ref<StatusFilterValue>('ALL')
 const drawerRequirement = ref<RequirementItem | null>(null)
 const collapsedGroups = ref(new Set<string>())
+
+const savingItems = ref(new Set<string>())
 
 const formalRequirements = computed(() => state.value?.requirements.filter(isFormalRequirement) ?? [])
 
@@ -102,14 +107,20 @@ const nextStep = computed(() => {
 
 onMounted(load)
 
+// Reload when project changes
+watch(projectId, () => {
+  versionsLoaded.value = false
+  versions.value = []
+  loading.value = true
+  drawerRequirement.value = null
+  collapsedGroups.value = new Set()
+  load()
+})
+
 async function load() {
   try {
-    const [loaded, history] = await Promise.all([
-      analysisStateRepository.load(projectId.value),
-      versionRepository.listByProject(projectId.value),
-    ])
+    const loaded = await analysisStateRepository.load(projectId.value)
     state.value = loaded ?? null
-    versions.value = history
     if (drawerRequirement.value) {
       drawerRequirement.value = loaded?.requirements.find(r => r.id === drawerRequirement.value?.id) ?? null
     }
@@ -128,48 +139,190 @@ async function load() {
   }
 }
 
-async function execute(action: () => Promise<unknown>) {
-  busy.value = true; errorMessage.value = ''; infoMessage.value = ''
-  try { await action(); await load() } catch (error) { errorMessage.value = readable(error) } finally { busy.value = false }
+// ── Optimistic actions ────────────────────────────────────────────
+
+async function confirmItem(item: RequirementItem) {
+  if (!state.value || savingItems.value.has(item.id)) return
+  const prevState = state.value
+  const idx = state.value.requirements.findIndex(r => r.id === item.id)
+  if (idx === -1) return
+
+  savingItems.value.add(item.id)
+  errorMessage.value = ''
+
+  // Optimistic update
+  state.value = {
+    ...state.value,
+    requirements: state.value.requirements.map((r, i) =>
+      i === idx
+        ? { ...r, status: 'CONFIRMED' as const, confirmedAt: Date.now() }
+        : r
+    ),
+  }
+
+  try {
+    if (item.type === 'ASSUMPTION') {
+      await requirementInteractionRepository.decideAssumption(item.id, true)
+    } else {
+      await requirementInteractionRepository.confirmRequirement(item.id)
+    }
+    showSuccess('已确认')
+  } catch (error) {
+    // Rollback
+    state.value = prevState
+    showError('保存失败，已恢复原状态')
+  } finally {
+    savingItems.value.delete(item.id)
+  }
 }
 
-function openDrawer(item: RequirementItem) { drawerRequirement.value = item }
+async function rejectItem(itemId: string) {
+  if (!state.value || savingItems.value.has(itemId)) return
+  const idx = state.value.requirements.findIndex(r => r.id === itemId)
+  if (idx === -1) return
+
+  const item = state.value.requirements[idx]
+  const prevState = state.value
+
+  savingItems.value.add(itemId)
+  errorMessage.value = ''
+
+  // Optimistic update
+  state.value = {
+    ...state.value,
+    requirements: state.value.requirements.map((r, i) =>
+      i === idx ? { ...r, status: 'SKIPPED' as const } : r
+    ),
+  }
+
+  try {
+    if (item.type === 'ASSUMPTION') {
+      await requirementInteractionRepository.decideAssumption(itemId, false)
+    } else {
+      await requirementInteractionRepository.rejectRequirement(itemId)
+    }
+    showSuccess('已排除')
+  } catch (error) {
+    state.value = prevState
+    showError('保存失败，已恢复原状态')
+  } finally {
+    savingItems.value.delete(itemId)
+  }
+}
+
+async function lockItem(id: string, locked: boolean) {
+  if (!state.value || savingItems.value.has(id)) return
+  const idx = state.value.requirements.findIndex(r => r.id === id)
+  if (idx === -1) return
+
+  const prevState = state.value
+
+  savingItems.value.add(id)
+  errorMessage.value = ''
+
+  // Optimistic update
+  state.value = {
+    ...state.value,
+    requirements: state.value.requirements.map((r, i) =>
+      i === idx ? { ...r, locked } : r
+    ),
+  }
+
+  try {
+    await requirementInteractionRepository.setLocked(id, locked)
+    showSuccess(locked ? '已锁定' : '已解锁')
+  } catch (error) {
+    state.value = prevState
+    showError('保存失败，已恢复原状态')
+  } finally {
+    savingItems.value.delete(id)
+  }
+}
+
+async function saveEdit(edit: ManualRequirementEdit) {
+  if (!drawerRequirement.value || savingItems.value.has(drawerRequirement.value.id)) return
+  const reqId = drawerRequirement.value.id
+  const idx = state.value?.requirements.findIndex(r => r.id === reqId)
+  if (idx === undefined || idx === -1) return
+
+  const prevState = state.value!
+  savingItems.value.add(reqId)
+  errorMessage.value = ''
+
+  // Optimistic update
+  state.value = {
+    ...state.value!,
+    requirements: state.value!.requirements.map((r, i) =>
+      i === idx
+        ? {
+            ...r,
+            title: edit.title,
+            content: edit.content,
+            sourceType: 'USER_EDIT' as const,
+            updatedAt: new Date().toISOString(),
+          }
+        : r
+    ),
+  }
+
+  try {
+    await requirementRepository.commitManualEdit(reqId, edit)
+    // Refresh drawer requirement
+    drawerRequirement.value = state.value?.requirements.find(r => r.id === reqId) ?? null
+    showSuccess('已修改')
+  } catch (error) {
+    state.value = prevState
+    showError('保存失败，已恢复原状态')
+  } finally {
+    savingItems.value.delete(reqId)
+  }
+}
+
+async function resolveConflict(conflictId: string, resolution: string) {
+  if (!state.value || savingItems.value.has(conflictId)) return
+  const prevState = state.value
+
+  savingItems.value.add(conflictId)
+  errorMessage.value = ''
+
+  // Optimistic update
+  state.value = {
+    ...state.value,
+    conflicts: state.value.conflicts.map(c =>
+      c.id === conflictId ? { ...c, status: 'RESOLVED' as const } : c
+    ),
+  }
+
+  try {
+    await requirementInteractionRepository.resolveConflict(conflictId, resolution)
+    showSuccess('已解决')
+  } catch (error) {
+    state.value = prevState
+    showError('保存失败，已恢复原状态')
+  } finally {
+    savingItems.value.delete(conflictId)
+  }
+}
+
+// ── Drawer & navigation ───────────────────────────────────────────
+
+async function openDrawer(item: RequirementItem) {
+  drawerRequirement.value = item
+  if (!versionsLoaded.value) {
+    try {
+      versions.value = await versionRepository.listByProject(projectId.value)
+      versionsLoaded.value = true
+    } catch {
+      // Version history is non-critical; silently swallow
+    }
+  }
+}
+
 function closeDrawer() { drawerRequirement.value = null }
-
-function confirmItem(item: RequirementItem) {
-  if (item.type === 'ASSUMPTION') {
-    void execute(() => requirementInteractionRepository.decideAssumption(item.id, true))
-  } else {
-    void execute(() => requirementInteractionRepository.confirmRequirement(item.id))
-  }
-}
-
-function rejectItem(itemId: string) {
-  const item = state.value?.requirements.find(r => r.id === itemId)
-  if (item?.type === 'ASSUMPTION') {
-    void execute(() => requirementInteractionRepository.decideAssumption(itemId, false))
-  } else {
-    void execute(() => requirementInteractionRepository.rejectRequirement(itemId))
-  }
-}
-
-function lockItem(id: string, locked: boolean) {
-  void execute(() => requirementInteractionRepository.setLocked(id, locked))
-}
-
-function saveEdit(edit: ManualRequirementEdit) {
-  if (drawerRequirement.value) {
-    void execute(() => requirementRepository.commitManualEdit(drawerRequirement.value!.id, edit))
-  }
-}
 
 function generateAcceptance(item: RequirementItem) {
   errorMessage.value = ''
   infoMessage.value = '验收标准会进入 PRD 文档生成；如需先补充细节，可以在需求详情中编辑。'
-}
-
-function resolveConflict(conflictId: string, resolution: string) {
-  void execute(() => requirementInteractionRepository.resolveConflict(conflictId, resolution))
 }
 
 function handleDrawerConfirm(reqId: string) {
@@ -245,8 +398,13 @@ function readable(error: unknown) {
         :counts="filterCounts"
       />
 
-      <!-- Grouped list -->
-      <section v-if="filteredRequirements.length" class="requirement-list">
+      <!-- Grouped list with TransitionGroup -->
+      <TransitionGroup
+        v-if="filteredRequirements.length"
+        name="req-list"
+        tag="section"
+        class="requirement-list"
+      >
         <RequirementGroup
           v-for="[groupLabel, items] in groupedRequirements"
           :key="groupLabel"
@@ -255,15 +413,18 @@ function readable(error: unknown) {
           :collapsed="collapsedGroups.has(groupLabel)"
           @toggle="toggleGroup(groupLabel)"
         >
-          <RequirementListItem
-            v-for="item in items"
-            :key="item.id"
-            :requirement="item"
-            @view="openDrawer"
-            @confirm="confirmItem"
-          />
+          <TransitionGroup name="req-item" tag="div">
+            <RequirementListItem
+              v-for="item in items"
+              :key="item.id"
+              :requirement="item"
+              :saving="savingItems.has(item.id)"
+              @view="openDrawer"
+              @confirm="confirmItem"
+            />
+          </TransitionGroup>
         </RequirementGroup>
-      </section>
+      </TransitionGroup>
       <p v-else-if="formalRequirements.length > 0" class="no-results">
         当前筛选条件下没有需求。
       </p>
@@ -411,5 +572,39 @@ function readable(error: unknown) {
   padding: 36px;
   color: var(--color-text-muted);
   font-size: 13px;
+}
+
+/* Group-level TransitionGroup */
+.req-list-enter-active,
+.req-list-leave-active,
+.req-list-move {
+  transition: all var(--motion-base) var(--ease-standard);
+}
+.req-list-enter-from {
+  opacity: 0;
+  transform: translateY(-6px);
+}
+.req-list-leave-to {
+  opacity: 0;
+}
+.req-list-leave-active {
+  position: absolute;
+}
+
+/* Item-level TransitionGroup */
+.req-item-enter-active,
+.req-item-leave-active,
+.req-item-move {
+  transition: all var(--motion-base) var(--ease-standard);
+}
+.req-item-enter-from {
+  opacity: 0;
+  transform: translateY(-6px);
+}
+.req-item-leave-to {
+  opacity: 0;
+}
+.req-item-leave-active {
+  position: absolute;
 }
 </style>

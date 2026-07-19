@@ -1,8 +1,14 @@
 <script setup lang="ts">
+import { computed } from 'vue'
 import type { RequirementItem } from './types'
 import { requirementSummary } from './requirementDisplay'
 
-const props = defineProps<{ requirement: RequirementItem }>()
+const props = defineProps<{
+  requirement: RequirementItem
+  saving?: boolean
+  saved?: boolean
+}>()
+
 defineEmits<{
   view: [requirement: RequirementItem]
   confirm: [requirement: RequirementItem]
@@ -38,16 +44,6 @@ const statusLabels: Record<string, string> = {
   CONFLICTED: '存在冲突',
 }
 
-const sourceLabels: Record<string, string> = {
-  INITIAL_INPUT: '用户输入',
-  UPLOADED_FILE: '导入文档',
-  USER_ANSWER: '用户回答',
-  AI_INFERENCE: 'AI 推断',
-  AI_RECOMMENDATION: 'AI 建议',
-  USER_EDIT: '用户编辑',
-  VERSION_RESTORE: '版本恢复',
-}
-
 const statusClass = (status: string) => {
   if (status === 'CONFIRMED') return 'status--confirmed'
   if (status === 'CONFLICTED') return 'status--conflicted'
@@ -56,10 +52,27 @@ const statusClass = (status: string) => {
 }
 
 const summary = () => requirementSummary(props.requirement.content)
-const canConfirm = () => !props.requirement.locked && props.requirement.status !== 'CONFIRMED' && props.requirement.status !== 'SKIPPED'
+
+const canConfirm = () =>
+  !props.requirement.locked &&
+  props.requirement.status !== 'CONFIRMED' &&
+  props.requirement.status !== 'SKIPPED'
+
+const needsAttention = (r: RequirementItem) =>
+  r.status === 'CONFLICTED' || r.status === 'UNANALYZED'
 </script>
 <template>
-  <article class="requirement-list-item">
+  <article
+    class="requirement-list-item"
+    :class="{
+      'requirement-list-item--saving': saving,
+      'requirement-list-item--saved': saved,
+    }"
+    role="button"
+    tabindex="0"
+    @click="$emit('view', requirement)"
+    @keydown.enter="$emit('view', requirement)"
+  >
     <div class="requirement-list-item__main">
       <div class="requirement-list-item__meta">
         <span class="requirement-list-item__type">{{ typeLabels[requirement.type] ?? requirement.type }}</span>
@@ -70,19 +83,13 @@ const canConfirm = () => !props.requirement.locked && props.requirement.status !
       <h4 class="requirement-list-item__title">{{ requirement.title }}</h4>
       <p class="requirement-list-item__summary">{{ summary() }}</p>
     </div>
-    <div class="requirement-list-item__actions">
-      <span class="requirement-list-item__source">{{ sourceLabels[requirement.sourceType] }}</span>
-      <div class="requirement-list-item__buttons">
-        <button type="button" class="btn-text" @click="$emit('view', requirement)">查看</button>
-        <button
-          v-if="canConfirm()"
-          type="button"
-          class="btn-secondary"
-          @click="$emit('confirm', requirement)"
-        >
-          确认
-        </button>
-      </div>
+    <div v-if="needsAttention(requirement)" class="requirement-list-item__actions" @click.stop>
+      <button
+        v-if="canConfirm()"
+        type="button"
+        class="btn-secondary"
+        @click="$emit('confirm', requirement)"
+      >确认</button>
     </div>
   </article>
 </template>
@@ -93,10 +100,27 @@ const canConfirm = () => !props.requirement.locked && props.requirement.status !
   gap: 14px;
   padding: 12px 14px;
   background: var(--color-surface);
-  transition: background 120ms ease;
+  cursor: pointer;
+  transition: background var(--motion-fast) var(--ease-standard),
+              transform var(--motion-fast) var(--ease-standard);
 }
 .requirement-list-item:hover {
   background: var(--color-surface-muted);
+  transform: translateX(2px);
+}
+.requirement-list-item:focus-visible {
+  outline: 3px solid rgba(36, 157, 165, 0.25);
+  outline-offset: -2px;
+}
+.requirement-list-item--saving {
+  opacity: 0.7;
+}
+.requirement-list-item--saved {
+  animation: save-flash 1200ms var(--ease-standard);
+}
+@keyframes save-flash {
+  0% { background: #eefaf5; }
+  100% { background: var(--color-surface); }
 }
 .requirement-list-item__main {
   flex: 1;
@@ -117,10 +141,12 @@ const canConfirm = () => !props.requirement.locked && props.requirement.status !
   letter-spacing: 0.3px;
 }
 .requirement-list-item__status {
-  font-size: 10px;
+  font-size: 11px;
   font-weight: 600;
   padding: 1px 6px;
   border-radius: 999px;
+  transition: background var(--motion-base) var(--ease-standard),
+              color var(--motion-base) var(--ease-standard);
 }
 .status--confirmed {
   color: #246b58;
@@ -149,7 +175,7 @@ const canConfirm = () => !props.requirement.locked && props.requirement.status !
 }
 .requirement-list-item__summary {
   margin: 0;
-  font-size: 11px;
+  font-size: 12px;
   color: var(--color-text-secondary);
   line-height: 1.45;
   display: -webkit-box;
@@ -164,34 +190,17 @@ const canConfirm = () => !props.requirement.locked && props.requirement.status !
   gap: 6px;
   flex-shrink: 0;
 }
-.requirement-list-item__source {
-  font-size: 10px;
-  color: var(--color-text-muted);
-}
-.requirement-list-item__buttons {
-  display: flex;
-  gap: 6px;
-}
-.btn-text {
-  padding: 3px 7px;
-  font-size: 11px;
-  color: var(--color-accent);
-  background: transparent;
-  border: none;
-  cursor: pointer;
-  border-radius: 5px;
-}
-.btn-text:hover {
-  background: var(--color-accent-soft);
-}
 .btn-secondary {
-  padding: 3px 7px;
-  font-size: 11px;
+  min-height: 36px;
+  padding: 0 12px;
+  font-size: 12px;
   color: var(--color-accent);
   background: transparent;
   border: 1px solid var(--color-border);
   border-radius: 5px;
   cursor: pointer;
+  display: inline-flex;
+  align-items: center;
 }
 .btn-secondary:hover {
   background: var(--color-accent-soft);

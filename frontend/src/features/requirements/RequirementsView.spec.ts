@@ -157,10 +157,10 @@ describe('RequirementsView', () => {
     const wrapper = mount(RequirementsView, { global: { plugins: [router] } })
     await flushPromises()
 
-    // Click view button
-    const viewBtn = wrapper.find('.btn-text')
-    expect(viewBtn.exists()).toBe(true)
-    await viewBtn.trigger('click')
+    // Click on requirement row (entire row now clickable)
+    const row = wrapper.find('.requirement-list-item')
+    expect(row.exists()).toBe(true)
+    await row.trigger('click')
     await flushPromises()
 
     // Drawer should be open

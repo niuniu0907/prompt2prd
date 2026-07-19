@@ -409,6 +409,8 @@ describe('VersionRepository', () => {
       dimension: 'SECURITY',
       targetField: 'auth',
       semanticKey: 'auth-method',
+      roundNo: 1,
+      coverageCategories: [] as string[],
       inputType: 'SINGLE_SELECT',
       options: [
         { id: uuid(52), label: '手机号+验证码', impact: '需要短信服务', recommended: true },

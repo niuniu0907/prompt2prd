@@ -61,11 +61,14 @@ describe('ModelSettingsPanel', () => {
     await wrapper.get('[data-testid="test-connection"]').trigger('click')
     await flushPromises()
 
-    expect(client.listModels).toHaveBeenCalledWith({
-      keySource: 'USER',
-      provider: 'DEEPSEEK',
-      apiKey: 'sk-session-key',
-    })
+    expect(client.listModels).toHaveBeenCalledWith(
+      {
+        keySource: 'USER',
+        provider: 'DEEPSEEK',
+        apiKey: 'sk-session-key',
+      },
+      expect.any(AbortSignal),
+    )
     expect(client.testConnection).toHaveBeenCalledWith({
       keySource: 'USER',
       provider: 'DEEPSEEK',

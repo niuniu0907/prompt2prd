@@ -67,30 +67,28 @@ describe('RequirementListItem', () => {
     sourceType: 'USER_ANSWER',
   }
 
-  it('renders category, title, summary, status, source, view and confirm buttons', () => {
+  it('renders category, title, summary and status', () => {
     const wrapper = mount(RequirementListItem, { props: { requirement: featureReq } })
     expect(wrapper.text()).toContain('功能需求')
     expect(wrapper.text()).toContain('订单支付')
     expect(wrapper.text()).toContain('用户提交订单后完成在线支付流程')
     expect(wrapper.text()).toContain('待确认')
-    expect(wrapper.text()).toContain('用户回答')
-    expect(wrapper.text()).toContain('查看')
-    expect(wrapper.text()).toContain('确认')
   })
 
-  it('emits view event on view button click', async () => {
+  it('emits view event on clicking the entire row', async () => {
     const wrapper = mount(RequirementListItem, { props: { requirement: featureReq } })
-    await wrapper.get('.btn-text').trigger('click')
+    await wrapper.get('.requirement-list-item').trigger('click')
     expect(wrapper.emitted('view')?.[0]).toEqual([featureReq])
   })
 
-  it('emits confirm event on confirm button click', async () => {
-    const wrapper = mount(RequirementListItem, { props: { requirement: featureReq } })
+  it('shows confirm button only for attention-needed items (conflicted, unanalyzed)', async () => {
+    const conflicted = { ...featureReq, status: 'CONFLICTED' as const }
+    const wrapper = mount(RequirementListItem, { props: { requirement: conflicted } })
     const buttons = wrapper.findAll('button')
     const confirmBtn = buttons.find(b => b.text() === '确认')
     expect(confirmBtn).toBeTruthy()
     await confirmBtn!.trigger('click')
-    expect(wrapper.emitted('confirm')?.[0]).toEqual([featureReq])
+    expect(wrapper.emitted('confirm')?.[0]).toEqual([conflicted])
   })
 
   it('hides confirm button for already confirmed requirements', () => {

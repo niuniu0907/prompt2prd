@@ -258,7 +258,11 @@ function goHome() {
           :class="{ 'workspace__canvas--wide': currentModule === 'prd' || currentModule === 'flowchart' }"
           data-testid="workspace-canvas"
         >
-          <router-view />
+          <RouterView v-slot="{ Component }">
+            <Transition name="canvas" mode="out-in">
+              <component :is="Component" />
+            </Transition>
+          </RouterView>
         </section>
 
         <aside
@@ -401,6 +405,18 @@ function goHome() {
   width: min(100%, 1400px);
 }
 
+/* Canvas child route transitions */
+.canvas-enter-active {
+  transition: opacity var(--motion-base) var(--ease-standard);
+}
+.canvas-leave-active {
+  transition: opacity var(--motion-base) var(--ease-standard);
+}
+.canvas-enter-from,
+.canvas-leave-to {
+  opacity: 0;
+}
+
 .workspace__panel {
   position: absolute;
   z-index: 5;
@@ -411,7 +427,7 @@ function goHome() {
   border-left: 1px solid var(--color-border);
   background: var(--color-surface);
   box-shadow: var(--shadow-card);
-  transition: width 180ms ease, opacity 180ms ease;
+  transition: width var(--motion-base) var(--ease-standard), opacity var(--motion-base) var(--ease-standard);
 }
 
 .workspace__panel--collapsed {

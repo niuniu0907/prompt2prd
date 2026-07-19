@@ -244,7 +244,7 @@ const question: ClarificationQuestion = {
   id: '33333333-3333-4333-8333-333333333333', projectId: project.id,
   batchId: '44444444-4444-4444-8444-444444444444', text: '寄养方支持哪些角色？',
   reason: '角色影响权限', dimension: 'ROLES_PERMISSIONS', targetField: 'roles',
-  semanticKey: 'roles', inputType: 'TEXT', options: [], priority: 4,
+  semanticKey: 'roles', roundNo: 1, coverageCategories: [] as string[], inputType: 'TEXT', options: [], priority: 4,
   status: 'PENDING', createdAt: project.createdAt, updatedAt: project.updatedAt,
 }
 
