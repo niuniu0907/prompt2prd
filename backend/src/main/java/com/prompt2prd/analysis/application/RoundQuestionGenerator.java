@@ -13,6 +13,7 @@ import com.prompt2prd.model.application.StructuredModelRequest;
 import com.prompt2prd.model.application.StructuredModelResult;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 import reactor.core.publisher.Mono;
 
@@ -54,7 +55,7 @@ public final class RoundQuestionGenerator {
                       "semanticKey": { "type": "string" },
                       "inputType": {
                         "type": "string",
-                        "enum": ["SINGLE_SELECT", "MULTI_SELECT", "CUSTOM_TEXT", "SELECT_WITH_CUSTOM", "AI_RECOMMENDED"]
+                        "enum": ["SINGLE_SELECT", "MULTI_SELECT", "CUSTOM_TEXT", "SINGLE_SELECT_CUSTOM", "MULTI_SELECT_CUSTOM", "AI_RECOMMENDED"]
                       },
                       "options": {
                         "type": "array",
@@ -87,6 +88,7 @@ public final class RoundQuestionGenerator {
     private final ModelGateway modelGateway;
     private final Supplier<UUID> idGenerator;
 
+    @Autowired
     public RoundQuestionGenerator(ModelGateway modelGateway) {
         this(modelGateway, UUID::randomUUID);
     }

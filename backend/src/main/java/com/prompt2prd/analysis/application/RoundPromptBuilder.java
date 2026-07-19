@@ -36,7 +36,7 @@ public final class RoundPromptBuilder {
                 Rules:
                 - Generate 8-10 high-value questions. Do not generate fewer than 8 unless genuinely no meaningful questions remain.
                 - Do not generate duplicate questions or questions already covered in previous rounds.
-                - Mix input types: SINGLE_SELECT, MULTI_SELECT, CUSTOM_TEXT, SELECT_WITH_CUSTOM, AI_RECOMMENDED.
+                - Mix input types: SINGLE_SELECT, MULTI_SELECT, CUSTOM_TEXT, SINGLE_SELECT_CUSTOM, MULTI_SELECT_CUSTOM, AI_RECOMMENDED.
                 - For SINGLE_SELECT and MULTI_SELECT: provide 2-6 concrete, actionable options.
                 - For AI_RECOMMENDED: provide 2-6 options and mark the best one as recommended=true.
                 - For CUSTOM_TEXT: no options needed, user types freely.

@@ -89,6 +89,11 @@ const activeContent = computed(() => {
   return unsavedContent.value[activeKey.value] ?? activeSection.value?.content ?? ''
 })
 
+/** Returns the persisted content for a section (ignoring unsaved edits). */
+function activeSectionContent(sectionKey: string): string {
+  return sections.value.find(s => s.sectionKey === sectionKey)?.content ?? ''
+}
+
 function selectSection(key: string) {
   flushSave()
   activeKey.value = key
@@ -222,7 +227,10 @@ async function handleStreamEvent(
     setSectionStatus(sectionId, 'GENERATING', null)
   } else if (event.type === 'section_delta') {
     const sectionId = String(event.data.sectionId)
-    buffer[sectionId] = (buffer[sectionId] ?? '') + String(event.data.delta)
+    const delta = String(event.data.delta)
+    buffer[sectionId] = (buffer[sectionId] ?? '') + delta
+    // Push delta to unsavedContent so the editor/preview shows real-time streaming text
+    unsavedContent.value[sectionId] = (unsavedContent.value[sectionId] ?? activeSectionContent(sectionId)) + delta
   } else if (event.type === 'section_completed') {
     const sectionId = String(event.data.sectionId)
     const content = buffer[sectionId] ?? ''

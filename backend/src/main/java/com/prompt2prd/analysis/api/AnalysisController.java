@@ -108,11 +108,14 @@ public class AnalysisController {
 
             ModelCallContext modelContext = new ModelCallContext(requestId, endpoint, cancellation);
 
-            // Build compact context for round generation
+            // Build compact context using only question texts (no UUIDs/timestamps)
+            List<String> currentQuestionTexts = request.currentVisibleQuestions().stream()
+                    .map(GenerateRoundRequest.QuestionSummary::text)
+                    .toList();
             CompactAnalysisContext compactContext = CompactPromptBuilder.forRoundGeneration(
                     request.state(),
                     request.targetRoundNo(),
-                    request.state().questions(), // current visible questions from state
+                    currentQuestionTexts,
                     request.coveredAreas());
 
             List<String> targetKeys = computeTargetKeys(
@@ -149,13 +152,9 @@ public class AnalysisController {
 
     private String answerAnalysisInput(AnalysisAnswersRequest request) {
         StringBuilder input = new StringBuilder("Continue requirement clarification.");
-        if (request.originalInput() != null) {
-            input.append("\nOriginal project idea:\n").append(request.originalInput());
-        }
-        if (!request.answers().isEmpty()) {
-            input.append("\nUse the full historical question and answer list from the context.");
-        }
-        if (request.supplementalInput() != null) {
+        // Only include supplemental input, not the full original document.
+        // The project summary and confirmed facts are already in the compact context.
+        if (request.supplementalInput() != null && !request.supplementalInput().isBlank()) {
             input.append("\nThis round supplemental idea:\n").append(request.supplementalInput());
         }
         return input.toString();

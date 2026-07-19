@@ -58,22 +58,21 @@ public final class CompactPromptBuilder {
 
     /**
      * Builds a compact context for pre-generating the next round of questions.
+     * Accepts only the text of current-round questions (from the lightweight
+     * QuestionSummary DTO), never the full ClarificationQuestion objects.
      */
     public static CompactAnalysisContext forRoundGeneration(
             RequirementState state,
             int targetRoundNo,
-            List<ClarificationQuestion> currentRoundQuestions,
+            List<String> currentRoundQuestionTexts,
             List<String> coveredAreas) {
         Objects.requireNonNull(state, "state");
-        Objects.requireNonNull(currentRoundQuestions, "currentRoundQuestions");
+        Objects.requireNonNull(currentRoundQuestionTexts, "currentRoundQuestionTexts");
 
         String projectSummary = buildProjectSummary(state);
         List<String> confirmedFacts = extractConfirmedFacts(state);
         List<String> pendingCategories = computePendingCategoriesExcluding(state, coveredAreas);
         List<CompactAnalysisContext.CompactQaTurn> recentAnswers = buildRecentAnswersFromState(state);
-        List<String> currentQuestionTexts = currentRoundQuestions.stream()
-                .map(ClarificationQuestion::text)
-                .toList();
 
         return new CompactAnalysisContext(
                 projectSummary,
@@ -81,7 +80,7 @@ public final class CompactPromptBuilder {
                 pendingCategories,
                 recentAnswers,
                 "Generate clarification questions for round " + targetRoundNo,
-                currentQuestionTexts,
+                currentRoundQuestionTexts,
                 state.project().language());
     }
 

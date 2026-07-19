@@ -16,15 +16,21 @@ function update(changes: Partial<QuestionAnswerDraft>) {
   emit('update:modelValue', { ...props.modelValue, ...changes, skipped: changes.skipped ?? false })
 }
 
-const displayOptions = computed(() => props.question.options.length
-  ? props.question.options.map(option => ({ ...option, fallback: false }))
-  : fallbackOptions(props.question).map((option, index) => ({
-      id: `${props.question.id}:fallback:${index}`,
-      label: option.label,
-      impact: option.impact,
-      recommended: option.recommended,
-      fallback: true,
-    })))
+const isCustomText = computed(() => props.question.inputType === 'CUSTOM_TEXT')
+
+const displayOptions = computed(() => {
+  if (isCustomText.value) return []
+  if (props.question.options.length) {
+    return props.question.options.map(option => ({ ...option, fallback: false }))
+  }
+  return fallbackOptions(props.question).map((option, index) => ({
+    id: `${props.question.id}:fallback:${index}`,
+    label: option.label,
+    impact: option.impact,
+    recommended: option.recommended,
+    fallback: true,
+  }))
+})
 
 function fallbackOptions(question: ClarificationQuestion) {
   const text = question.text
@@ -77,7 +83,7 @@ function toggleOption(id: string, checked: boolean) {
 
 <template>
   <div class="answer-form">
-    <p v-if="!question.options.length" class="answer-form__legacy" role="status">
+    <p v-if="!isCustomText && !question.options.length" class="answer-form__legacy" role="status">
       这是旧版本生成的无选项问题，已临时转换为可选答案；重新分析后会生成正式选项。
     </p>
     <div class="answer-form__options">

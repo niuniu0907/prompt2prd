@@ -86,13 +86,22 @@ public final class PrdGenerator {
             PrdGenerationPlan.Mode mode,
             List<String> missing,
             List<RequirementItem> currentRequirements) {
+        // Filter requirements to only those relevant to this section
+        List<RequirementItem> sectionReqs = currentRequirements.stream()
+                .filter(item -> isRelevantToSection(item.type(), definition.key()))
+                .toList();
+        List<String> sectionEvidence = clarificationEvidence(state).stream()
+                .filter(evidence -> isEvidenceRelevantToSection(evidence, definition.key()))
+                .toList();
+
         return "Project=" + state.project().name()
                 + "\nLanguage=" + state.project().language()
                 + "\nDocument mode=" + mode
                 + "\nSection=" + definition.key().wireName() + " | " + definition.title()
                 + "\nCompleteness=" + state.completeness().total()
-                + "\nCurrent structured requirements=" + RequirementFormatter.compactSummary(currentRequirements)
-                + "\nSaved clarification answers=" + clarificationEvidence(state)
+                + "\nRelevant requirements=" + RequirementFormatter.compactSummary(sectionReqs)
+                + "\nAll requirements (for cross-reference)=" + RequirementFormatter.compactSummary(currentRequirements)
+                + "\nRelevant clarification answers=" + sectionEvidence
                 + "\nMissing or pending items=" + missing
                 + "\nRules: generate only from current information; "
                 + "confirmed content is written normally; AI_INFERENCE or AI_RECOMMENDATION content must be marked as AI推断，待确认; "
@@ -105,6 +114,63 @@ public final class PrdGenerator {
                 + "business processes must be text summaries unless the user generated an optional flowchart attachment; "
                 + "draft mode must visibly label unresolved facts; "
                 + "technical architecture, API design, database table design, and flowcharts belong to optional attachments.";
+    }
+
+    /** Returns true if the requirement type is directly relevant to the given section. */
+    private static boolean isRelevantToSection(RequirementType type, PrdDefinition.SectionKey key) {
+        return switch (key) {
+            case PRODUCT_BACKGROUND_GOALS, PRODUCT_SCOPE -> type == RequirementType.PRODUCT_GOAL
+                    || type == RequirementType.RISK_OPEN_ITEM;
+            case TARGET_USERS_SCENARIOS -> type == RequirementType.ROLE
+                    || type == RequirementType.USER_STORY;
+            case FEATURE_MODULES_PRIORITY -> type == RequirementType.FEATURE;
+            case BUSINESS_RULES -> type == RequirementType.BUSINESS_RULE;
+            case EXCEPTION_SCENARIOS -> type == RequirementType.EXCEPTION_SCENARIO;
+            case PAGE_LIST_STATES -> type == RequirementType.PAGE;
+            case DATA_REQUIREMENTS -> type == RequirementType.DATA_MODEL;
+            case ACCEPTANCE_CRITERIA -> type == RequirementType.ACCEPTANCE_CRITERION
+                    || type == RequirementType.BUSINESS_RULE;
+            case NON_FUNCTIONAL_REQUIREMENTS -> type == RequirementType.NON_FUNCTIONAL_REQUIREMENT;
+            case RISKS_ASSUMPTIONS_OPEN_ITEMS -> type == RequirementType.ASSUMPTION
+                    || type == RequirementType.RISK_OPEN_ITEM
+                    || type == RequirementType.MISSING_INFORMATION;
+            case USER_STORIES -> type == RequirementType.USER_STORY
+                    || type == RequirementType.ROLE;
+        };
+    }
+
+    private static boolean isEvidenceRelevantToSection(String evidence, PrdDefinition.SectionKey key) {
+        String lower = evidence.toLowerCase(java.util.Locale.ROOT);
+        return switch (key) {
+            case PRODUCT_BACKGROUND_GOALS, PRODUCT_SCOPE ->
+                lower.contains("目标") || lower.contains("goal")
+                    || lower.contains("产品") || lower.contains("product");
+            case TARGET_USERS_SCENARIOS, USER_STORIES ->
+                lower.contains("角色") || lower.contains("role")
+                    || lower.contains("用户") || lower.contains("user") || lower.contains("故事");
+            case FEATURE_MODULES_PRIORITY ->
+                lower.contains("功能") || lower.contains("feature")
+                    || lower.contains("优先级") || lower.contains("priority");
+            case BUSINESS_RULES ->
+                lower.contains("规则") || lower.contains("rule") || lower.contains("限制");
+            case EXCEPTION_SCENARIOS ->
+                lower.contains("异常") || lower.contains("exception");
+            case PAGE_LIST_STATES ->
+                lower.contains("页面") || lower.contains("page")
+                    || lower.contains("状态") || lower.contains("state");
+            case DATA_REQUIREMENTS ->
+                lower.contains("数据") || lower.contains("data")
+                    || lower.contains("字段") || lower.contains("field");
+            case ACCEPTANCE_CRITERIA ->
+                lower.contains("验收") || lower.contains("acceptance")
+                    || lower.contains("测试") || lower.contains("test");
+            case NON_FUNCTIONAL_REQUIREMENTS ->
+                lower.contains("性能") || lower.contains("performance")
+                    || lower.contains("安全") || lower.contains("security");
+            case RISKS_ASSUMPTIONS_OPEN_ITEMS ->
+                lower.contains("假设") || lower.contains("assumption")
+                    || lower.contains("风险") || lower.contains("risk") || lower.contains("待定");
+        };
     }
 
     private List<String> clarificationEvidence(RequirementState state) {
