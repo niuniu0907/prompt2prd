@@ -1,10 +1,20 @@
 # Prompt2PRD Progress
 
-> 当前阶段：阶段一、阶段二已完成；阶段三的步骤 14（统一 API 错误协议）和步骤 15（模型网关边界）已完成，下一步执行步骤 16（OpenAI 兼容适配器）。
+> 当前阶段：阶段一至阶段八已完成，阶段九步骤 50～54 已完成；2026-07-18 已完成产品逻辑重构，主流程统一为“需求输入 → AI澄清 → 需求结果 → PRD文档”，架构建议和流程图转为折叠可选工具；首次 AI 解析成功后自动进入 AI 澄清，需求完整度未达 80% 或仍有核心冲突时继续追问，不进入低完整度 PRD 草稿页。下一步执行步骤 55（完成 JAR 与 Docker 交付）。
 
 ## 已完成
 
 - 产品设计文档、技术栈和 57 步实施计划已经建立。
+- 2026-07-18 产品逻辑重构已完成：工作台一级主导航只保留“需求输入、AI澄清、需求结果、PRD文档”；“流程图、架构建议”保留在默认折叠的“更多工具”中，不再作为主流程必经模块，也不影响 PRD 生成。
+- 2026-07-18 需求输入完成后的跳转和 AI 澄清交互已重构：首次分析保存成功后使用 `router.replace` 自动进入当前项目 AI 澄清页，需求输入页不再展示完整待回答问题列表，只显示“原始需求解析完成”小型状态提示。
+- 2026-07-18 AI 澄清页恢复为每轮最多 10 题的批量回答体验：本轮提交后先写入本地 IndexedDB，如果已有下一批问题则当前页立即切换并允许继续作答，同时后台整理上一轮回答并预生成后续问题；生成失败保留本地回答和当前页面状态并允许重试。
+- 2026-07-18 AI 澄清页新增“编辑原始需求”弹窗，直接写回项目原始需求，不要求用户切回需求输入页；顶部栏持续状态收敛为只显示需求完整度和 PRD 生成提示，不再把待确认/待分析计数混入顶部。
+- 2026-07-18 顶部状态已从流程进度改为“需求完整度”，并展示已确认、待确认、待分析和冲突数量；PRD 生成条件改为已有真实分析内容、需求完整度至少 80% 且无核心冲突，待确认、待分析、架构选择和流程图不再阻塞生成。
+- 2026-07-18 PRD 主文档定义调整为 12 个需求章节：产品背景与目标、目标用户与使用场景、产品范围、功能模块与优先级、用户故事、业务规则、异常场景、页面清单与页面状态、数据需求、验收标准、非功能需求、风险/假设与待确认事项；接口设计、数据库表设计、架构建议和流程图作为可选扩展处理。
+- 2026-07-18 AI 澄清页已调整为本轮批量访谈：集中展示当前最高优先级问题所在批次，支持选择、补充、整轮采用 AI 建议、整轮跳过和提交本轮回答；采用 AI 建议只预填，用户提交后才变为已确认。
+- 2026-07-18 需求状态模型补齐为未分析、待确认、已确认、已跳过、不适用、存在冲突以及 AI 推断兼容状态；AI 推断不会自动转为已确认，完整度按关键需求覆盖计算而非页面流程计算。
+- 2026-07-18 PRD 生成提示已重写：只按当前信息生成，AI 推断标记“待确认”，未分析章节保留并显示“待分析”，跳过内容显示“用户暂未提供”，禁止补编未提及的登录、支付、权限、数据库、部署、接口、架构或流程图细节。
+- 2026-07-18 需求卡片新增“查看详情、生成验收标准、生成流程图”操作；流程图只从用户选中的复杂需求进入生成，不再默认针对整个项目生成。
 - 已确认状态归属、完整度算法、文件分块、模型地址安全、系统 Key 默认策略、SSE 章节事件和浏览器范围。
 - `memory-bank` 路径已经统一，架构与进度文档已经初始化。
 - Git 仓库已经重新初始化。
@@ -35,6 +45,15 @@
 
 ## 当前验证
 
+- `2026-07-18` 需求输入跳转与 AI 澄清重构后运行 `npm --prefix frontend run test -- AnalysisView QuestionWizardView QuestionBatch ProjectHeader ProjectWorkspace projectRepository` 成功：6 个测试文件、56 项测试全部通过，覆盖 `router.replace` 自动进入 AI 澄清、输入页不展示问题列表、每轮最多 10 题、后台预生成下一轮、原始需求弹窗编辑、顶部仅显示需求完整度和刷新恢复状态。
+- `2026-07-18` 需求输入跳转与 AI 澄清重构后运行 `npm --prefix frontend run typecheck` 成功：`vue-tsc` 与 `tsc` 严格类型检查均通过。
+- `2026-07-18` 需求输入跳转与 AI 澄清重构后运行 `npm --prefix frontend run test` 成功：47 个测试文件、258 项测试全部通过。
+- `2026-07-18` 需求输入跳转与 AI 澄清重构后运行 `npm --prefix frontend run build` 成功：生产构建通过，仅保留 Vite 大 chunk 体积提示。
+- `2026-07-18` 需求输入跳转与 AI 澄清重构后运行 `.\mvnw.cmd test` 成功：后端 205 项测试全部通过。
+- `2026-07-18` 产品逻辑重构后运行 `npm --prefix frontend run test` 成功：47 个测试文件、252 项测试全部通过。
+- `2026-07-18` 产品逻辑重构后运行 `npm --prefix frontend run typecheck` 成功：`vue-tsc` 与 `tsc` 严格类型检查均通过。
+- `2026-07-18` 产品逻辑重构后运行 `npm --prefix frontend run build` 成功：生产构建通过，仅保留 Vite 大 chunk 体积提示。
+- `2026-07-18` 产品逻辑重构后运行 `.\mvnw.cmd test` 成功：后端 205 项测试全部通过。
 - `2026-07-17` 运行 `.\mvnw.cmd test` 成功：根工程与后端模块均为 `SUCCESS`，测试 1 个、失败 0、错误 0、跳过 0。
 - Spring 上下文使用 Java 21.0.6 和 Spring Boot 4.1.0 启动，Actuator 暴露默认健康端点。
 - 依赖树确认 WebFlux 使用 Reactor Netty，且不存在 JDBC、JPA、R2DBC 或数据库驱动；当前仍没有服务端业务数据库。
@@ -44,7 +63,7 @@
 - `2026-07-17` 运行 `.\mvnw.cmd package` 成功：根工程与后端模块均为 `SUCCESS`，前端锁定依赖安装、类型检查、Vite 构建、后端测试、资源复制和 Spring Boot 重打包全部通过。
 - JAR 内容检查确认当前静态资源为 `index.html`、`favicon.svg`、`index-6amIZEbi.js` 和 `index-CQfpKQaX.css`，没有旧哈希资源残留。
 - 启动 `backend/target/backend-0.0.1-SNAPSHOT.jar` 后，根路径返回 HTTP 200 和打包后的 Prompt2PRD 页面，`/actuator/health` 返回 HTTP 200 与 `UP`；两者使用同一服务地址且响应没有 `Access-Control-Allow-Origin`。
-- 当前尚无业务接口、模型接入和真实项目分析工作台；文件上传、预览与本地分块已经接入新建项目页，但项目入口仍只展示已保存状态，不声称已经启动 AI 分析。
+- 项目概览现已接入真实初始分析接口和 SSE 状态流；文件上传的服务端分块模型调用仍未接入，本批次把已确认文件全文作为初始分析输入的一部分发送。
 - `2026-07-17` 运行 `npm --prefix frontend run test` 成功：测试文件 2 个、测试 4 个，全部通过；覆盖 Router/Pinia、四个全局导航入口、设计 Token、主按钮颜色契约、空状态和无深色模式。
 - `2026-07-17` 运行 Playwright 真实浏览器检查成功：1280×800 下页面宽度为 1280、无横向溢出，侧栏、空状态和本地数据提示均可见；主按钮计算后背景为 `rgb(199, 235, 100)`、文字为 `rgb(38, 43, 37)`，控制台错误和警告均为 0。
 - 视觉验收截图保存在 `output/playwright/step-5-workspace-1280.png`。
@@ -94,7 +113,100 @@
 - `2026-07-17` 测试侧 `FakeModelGateway` 可模拟成功、格式错误、延迟和取消；新增架构依赖测试，检查网关签名不暴露厂商类型，并持续扫描 `analysis`、`architecture`、`generation` 源码，禁止直接依赖模型适配器、Spring AI 或厂商客户端。
 - `2026-07-17` 步骤 15 完成后运行 `.\mvnw.cmd test` 成功：后端测试 27 个、失败 0、错误 0、跳过 0；其中模型网关行为测试 8 项、架构边界测试 2 项。
 - `2026-07-17` 步骤 15 最终前端回归成功：17 个测试文件、123 项测试全部通过；本步骤未修改前端业务代码。
+- `2026-07-17` 步骤 16 完成 Spring AI 2.0 OpenAI 兼容适配器：运行时创建 `OpenAiChatModel`/`ChatClient`，统一映射模型名、Bearer 鉴权、温度、top-p、token、停止词和兼容扩展参数；`2026-07-18` 模型配置重构后服务商入口已收敛为 DeepSeek、OpenAI 和其他 OpenAI 兼容服务。
+- `2026-07-17` 步骤 16 的结构化调用只在完整响应到达后通过 `BeanOutputConverter` 产生正式 DTO；文本调用保持 `Flux` 真实流式片段并携带请求 ID 与递增序号；连接测试复用相同安全传输和当前明确配置。
+- `2026-07-17` 模型地址安全策略拒绝非 HTTP(S)、内嵌凭据、公网 HTTP、未授权私网/链路本地/云元数据地址；本机仅 `localhost`、`127.0.0.1`、`::1` 允许 HTTP，其他私网 HTTPS 需 `PROMPT2PRD_MODEL_PRIVATE_HOST_ALLOWLIST`。实际 HTTP 客户端固定使用预检 IP 并关闭自动重定向，防止 DNS 重绑定和重定向绕过。
+- `2026-07-17` 步骤 16 本地模拟服务测试覆盖请求地址、模型名、参数、Authorization、结构化分段响应、文本流、重定向未命中目标；地址单元测试覆盖公网 HTTP、私网、云元数据、显式白名单和 DNS 重绑定。后端回归共 37 项测试通过、失败 0、错误 0、跳过 0；前端回归 17 个测试文件、123 项测试通过。
+- `2026-07-17` 步骤 17 建立显式 Key 来源领域对象与服务端配置边界：`ModelConfig` 区分 `SYSTEM/USER` 并隐藏字符串中的密钥，`ModelProperties` 绑定 `PROMPT2PRD_MODEL_SYSTEM_KEY_ENABLED` 和 `PROMPT2PRD_MODEL_SYSTEM_API_KEY`，只有开关为真且密钥非空时系统模式才可用。
+- `2026-07-17` Key 解析严格按用户当前选择执行；用户 Key 为空或失败时直接返回该来源错误，不读取系统 Key。前端 `modelConfigStore` 只把用户 Key 保存在当前 Pinia 实例内，新建应用 Store 后恢复为空，不写 localStorage、sessionStorage 或 IndexedDB。
+- `2026-07-17` 步骤 17 后端完整回归 44 项测试通过；四种系统 Key 环境状态、显式用户来源不回退和密钥字符串脱敏专项测试 7 项通过。前端完整回归 18 个测试文件、127 项测试通过，严格类型检查与 Vite 生产构建成功；生产类/前端产物及测试报告扫描未发现测试密钥明文。
+- `2026-07-17` 步骤 18 实现 `GET /api/model-config` 与 `POST /api/model-config/test`：前者只返回系统 Key 能力开关，后者按当前明确的 Key 来源构建运行时端点并调用 `ModelGateway.testConnection()`；生产网关通过独立配置类接入 Spring AI 适配器。
+- `2026-07-17` 连接测试将不可达、鉴权、模型不存在、限流、格式不兼容和超时映射到现有稳定错误协议；响应、日志和生产产物不包含请求 Key。后端接口专项 7 项通过，完整后端回归 51 项通过。
+- `2026-07-17` 前端模型设置导航已启用，新增 `/settings/model` 页面、常用 OpenAI 兼容服务配置、系统/用户 Key 选择、Temperature 和连接结果分类提示。`2026-07-18` 模型配置重构后，页面已收敛为 DeepSeek、OpenAI 和其他 OpenAI 兼容服务，并按新的存储边界保存配置。
+- `2026-07-17` 步骤 18 前端完整回归 20 个测试文件、134 项测试通过，严格 TypeScript 检查和 Vite 生产构建成功；生产产物与测试报告扫描未发现步骤 18 测试密钥明文。
+- `2026-07-17` 步骤 19 按测试先行完成：额度存储与策略测试先以缺少 `QuotaProperties`、`CaffeineQuotaStore`、`QuotaService` 和 `ClientIpDigest` 得到预期编译失败，额度接口测试随后以缺少 `QuotaController` 得到预期编译失败，再补齐实现。
+- `2026-07-17` 已建立 Caffeine 单实例额度存储：系统 Key 每 IP 每个 UTC 自然日默认最多 3 次分析和 1 次完整 PRD；分块分析只调用一次操作扣减，但每个真实上游调用都单独进入默认 100 次/日的进程级全局预算。计数原子更新、容量有界、旧日期与频率窗口自动过期，服务重启后清空。
+- 用户 Key 不消耗系统免费额度或全局预算，但与系统 Key 一样受默认每 IP 30 次/分钟的基础频率限制；实际远端 IP 在存储前转换为带盐 SHA-256 摘要，转发头不参与识别，响应与缓存均不暴露原始 IP。
+- 已实现 `GET /api/quota`，准确返回当前调用方的系统 Key 可用状态、剩余分析次数、完整 PRD 次数和全局上游调用数。模型连接测试已接入基础频率与全局上游预算，但不会扣分析或完整 PRD 免费次数。
+- 步骤 19 后端完整回归为 67 项测试全部通过；新增 16 项额度专项测试覆盖功能关闭、配置默认值与覆盖、边界次数、分块计数、UTC 日期切换、Caffeine 自动过期与容量、全局上限、用户 Key 旁路、基础频率、IP 摘要和 `/api/quota`。前端回归仍为 20 个测试文件、134 项测试全部通过。
+- `2026-07-17` 步骤 20 定义后端分析状态契约，并以 `contracts/analysis-state.sample.json` 同时验证 Java/Jackson 与前端 TypeScript 能解析同一份项目、需求、问题、答案、冲突和完整度样例；缺失 ID/来源、未知枚举、非法锁定和越界完整度均会被拒绝。
+- `2026-07-17` 步骤 21 实现十维固定权重完整度计算，覆盖确认、推测、待确认、冲突、缺口、未回答问题、不适用维度重归一化及核心冲突 50 分封顶。
+- `2026-07-17` 步骤 22 实现固定公式问题排序和两级精确去重；最多返回 10 个，高价值问题不足时允许少于 5 个，交易、权限、安全和核心状态问题在同分时优先。
+- `2026-07-17` 步骤 23 实现只接受已校验候选补丁的确定性状态合并器，覆盖新增、重复、来源覆盖、锁定保护、矛盾冲突、无后端持久化和失败输入不变。
+- `2026-07-17` 步骤 24 实现跳过与“不知道”回答策略；推荐在明确接受前保持 `PENDING` 且为 0 分，接受后才转为用户确认内容，拒绝或跳过继续不计完整度。
+- `2026-07-17` 步骤 25 实现有界分析上下文，只保留当前状态、锁定内容、最新一轮问答、缺口、稳定项目语言和输出 Schema；100 条旧问答不会进入构建结果。
+- 步骤 20～25 按测试先行完成；后端分析专项新增 34 项测试，完整后端回归为 101 项全部通过。前端完整回归为 21 个测试文件、135 项测试全部通过，严格 TypeScript 检查与 Vite 生产构建成功。
+- `2026-07-17` 步骤 26 实现 `RequirementAnalyzer`：通过唯一 `ModelGateway` 边界请求完整结构化输出，Bean Validation 与枚举/状态规则校验通过后才转换为候选补丁、问题和缺口，再复用确定性合并器、问题选择器与完整度计算器；模型内容不能直接成为已确认需求。
+- `2026-07-17` 步骤 27 固定 15 类 SSE 事件协议；后端 `StreamEventSequence` 为每个请求生成从 1 开始的递增事件且只允许一个终态，前端对同一事件词汇、必需载荷和终态进行镜像校验。
+- `2026-07-17` 步骤 28 实现 `/api/analysis` 与 `/api/analysis/answers` 两个 POST SSE 接口及 `AnalysisOrchestrator`：依次发出开始、进度、补丁、问题、冲突、完整度和完成事件，5 秒无业务事件时发送心跳进度；失败、完成和取消路径保持单终态，取消会传递给模型信号。
+- `2026-07-17` 步骤 29 实现浏览器 POST SSE 客户端：支持任意网络分片、CRLF、重复/迟到事件忽略、跨请求事件隔离、乱序缺口拒绝、未知事件兼容和断流失败；新分析请求会中止旧请求并阻止旧事件或旧终态写回。
+- `2026-07-17` 步骤 30 用 `AnalysisView` 替换项目概览占位页，流事件到达时无需刷新即可逐步显示进度、产品目标、角色、需求卡片和首轮问题，每项标明来源与状态。只有完整终态才通过 `AnalysisStateRepository` 在 Dexie 事务内替换项目分析状态；完整度明细保存在项目专属 `app_setting` 记录中，刷新可恢复最后有效状态，用户手动名称不会被模型建议覆盖。
+- 步骤 26～30 均按测试先行完成。`2026-07-17` 完整后端回归 113 项全部通过；完整前端回归 26 个测试文件、148 项测试全部通过；严格 TypeScript 检查和 Vite 生产构建成功。
+- `2026-07-17` 步骤 31 实现批量问题向导：支持单选、多选、文字、确认、自定义答案、补充说明、单题跳过和整轮跳过，展示提问原因与选项影响。回答先由 `ClarificationRepository` 事务写入；重复提交复用同一问题答案，不产生重复记录，再通过现有 `/api/analysis/answers` SSE 链生成下一轮并只提交完成终态。
+- `2026-07-17` 步骤 32 实现冲突、假设与锁定交互：冲突面板展示双方内容、影响和核心标识；假设可确认或拒绝；只有确认需求可锁定，锁定后编辑边界会明确拒绝。冲突解决、假设决策和锁定变化均与完整状态快照及字段变更记录在同一个 Dexie 事务中同步。
+- 非核心冲突允许继续回答问题；未解决核心冲突通过 `hasBlockingCoreConflict()` 和需求页警告阻止项目被视为完成。后端既有 `RequirementStateMerger` 继续负责阻止流式模型补丁覆盖锁定内容。
+- `2026-07-17` 步骤 33 实现需求编辑和版本页面：需求内容失焦自动保存，人工编辑转为 `CONFIRMED/USER_EDIT`，记录未来受影响的 `FLOWCHART/PRD` 标识，并按固定十维权重重算本地完整度；锁定项必须先解锁。
+- 版本历史可恢复项目、需求、问题、答案和冲突；既有 `VersionRepository.restore()` 在单个事务中先保存恢复前状态，再应用目标快照并创建恢复版本。当前步骤不引用尚未实现的流程图或 PRD Repository。
+- 步骤 31～33 按测试先行完成。`2026-07-17` 完整前端回归 34 个测试文件、162 项测试全部通过；完整后端回归 113 项全部通过；严格 TypeScript 检查和 Vite 生产构建成功。
+- `2026-07-17` 步骤 34 完成技术约束收集：表单覆盖已掌握/自定义技术、目标终端、团队规模、用户量、登录/实时/支付/文件/AI 能力、敏感程度、部署、预算、周期和维护能力；允许部分提交，未回答关键项保持 `pendingFields`，后端拒绝缺少项目 UUID和非法枚举。
+- `2026-07-17` 步骤 35 完成确定性架构候选与评分：每次返回 3 个候选，均包含前端、后端、存储、鉴权、文件、AI、部署、测试、职责、优缺点、限制、未选择原因，以及学习、速度、部署、成本、维护、扩展和 AI 支持七维评分。Vue/Java/Spring Boot、个人、单体 Docker 样例稳定优先推荐技能匹配方案，同时保留全栈 TypeScript 备选。
+- `2026-07-17` 步骤 36 实现 `POST /api/architecture/recommend`、架构工作台路由和候选对比页面；用户可接受推荐、选择备选或手动修改。候选以 `TECHNICAL_CONSTRAINT/PENDING` 草稿复用现有 IndexedDB 需求仓库，确认事务保证唯一 `CONFIRMED` 主架构，并同步项目阶段、完整度快照、完整版本、字段变更和 `architecture_confirmed` 事件。
+- 阶段五测试覆盖完整/部分约束、自定义技术、敏感数据、2～3 个候选、七维对比、技能匹配推荐、候选草稿、唯一主架构、切换确认版本和确认事件。`2026-07-17` 后端完整回归 119 项全部通过；前端完整回归 37 个测试文件、168 项全部通过；严格 TypeScript 检查与 Vite 生产构建成功。
+- `2026-07-17` 步骤 37 实现 `POST /api/generation/flowchart` 和流程图结构化生成器：只向模型提供已确认需求，分别处理主流程与多个异常流程；异常图必须追溯到已确认异常场景，信息不足时返回待补充提示，单图失败不会丢弃其他有效图。自动化测试全部使用假 `ModelGateway`，未读取或消耗真实 API Key。
+- `2026-07-17` 步骤 38 实现 Mermaid 校验、流程图页面和本地持久化：每张图保存前独立解析校验，支持查看、复制源码、全部生成和单图重新生成；已有图只有在新图合法且用户确认后才替换，拒绝或校验失败会保留旧图。流程图宽画布继续沿用右侧面板默认收起规则。
+- Dexie Schema 已由 v1 升级到 v2，新增第 10 个 `flowchart` 仓库并验证 v1 数据原样迁移；流程图已纳入项目复制、永久删除、版本快照和版本恢复。生成与确认替换在事务中同步记录版本并推进项目阶段。
+- 阶段六按测试先行完成。`2026-07-17` 后端完整回归 125 项全部通过；前端完整回归 40 个测试文件、179 项全部通过；严格 TypeScript 检查和 Vite 生产构建成功。
+- `2026-07-17` 步骤 39 固定 AI-ready PRD 的 17 个有序章节，并同步前端章节键、`MUST/SHOULD/MUST_NOT` 指令等级和追溯链接类型。后端稳定编号覆盖需求、用户故事、业务规则、接口、页面、验收和实施阶段；追溯检查阻止核心功能缺少用户故事、规则或验收引用。
+- `2026-07-17` 步骤 40 实现 `PrdGenerator`：只读取当前 `CONFIRMED` 需求和唯一确认主架构，按章节构建有界提示词并通过 `ModelGateway.streamText()` 生成正文。完整度低于 80、主架构未确认或不唯一、核心冲突未解决、仍有缺失项时统一生成显式 `DRAFT`；输入需求状态在成功或阻止最终模式时均不变化。
+- `2026-07-17` 步骤 41 实现 `POST /api/generation/prd` 与 `POST /api/generation/prd/sections/{sectionId}` SSE 接口。每章依次产生开始、多个有序文本片段和完成/失败事件；单章失败保留兄弟章节，总任务终态唯一，模型取消后不再追加章节内容。完整生成和单章生成分别使用完整 PRD 额度边界与频率边界，并按真实章节数预留上游调用预算。
+- 步骤 39～41 自动化模型测试全部使用假 `ModelGateway`。`2026-07-17` 后端完整回归 138 项全部通过；前端完整回归 40 个测试文件、179 项全部通过；严格 TypeScript 检查和 Vite 生产构建成功。PRD 编辑、预览、IndexedDB 保存与版本恢复尚未实现，将从步骤 42 开始。
+
+- `2026-07-18` 步骤 42 实现 PRD 编辑、预览与保存：`PrdEditor.vue` 支持 Markdown 编辑与 2 秒失焦自动保存，`PrdPreview.vue` 使用 `markdown-it({ html: false })` 安全渲染，`PrdSectionList.vue` 展示 17 个章节的状态（草稿/生成中/已完成/失败）与锁定切换；`PrdView.vue` 组合编辑/预览模式切换、全部生成和单章重新生成，`PrdRepository` 提供初始化、更新、保存、锁定和生成内容写入的 IndexedDB 事务操作。
+- `2026-07-18` 步骤 43 实现章节锁定与重新生成：`PrdRegenerationDialog.vue` 在重新生成前展示覆盖警告并要求显式勾选确认；`PrdRepository.saveBeforeRegeneration()` 在重生成前创建历史版本备份，`replaceAfterRegeneration()` 仅在确认后替换并通过事务记录变更。
+- `2026-07-18` 步骤 44 实现 PRD 修改到需求的同步分析：后端 `PrdChangeAnalyzer` 仅在保存时分析差异，通过提取编号事实和数值变化匹配已确认需求项；唯一匹配可自动同步，多匹配或锁定项分别生成待确认变更或冲突警告。新增 `POST /api/generation/prd/analyze-changes` 接口和前端 `analyzePrdChanges()` 导出。
+- `2026-07-18` 步骤 45 实现一致性校验与 Markdown 导出：后端 `PrdValidator` 验证章节完整性、稳定编号、交叉引用、技术决策摘要、验收格式和实施阶段；新增 `POST /api/generation/prd/validate` 接口。前端 `prdExporter.ts` 合并已完成/草稿章节为 Markdown 文件，清理非法文件名字符并触发浏览器下载。
+- 步骤 42～45 自动化模型测试全部使用假 `ModelGateway`。`2026-07-18` 后端完整回归 152 项全部通过（新增 14 项）；前端完整回归 44 个测试文件、206 项全部通过（新增 27 项）；严格 TypeScript 检查和 Vite 生产构建成功。阶段七（AI-ready PRD）已全部完成。
+- `2026-07-18` 步骤 46 实现贯通停止与迟到结果保护：后端新增 `GenerationTaskRegistry` 记录每个项目当前请求，前端新增 `useGenerationTask()` 管理 `AbortController` 和任务版本号；分析、架构、流程图和 PRD 的迟到结果在入库前通过当前版本检查丢弃。
+- `2026-07-18` 步骤 47 实现超时、有限重试与心跳配置：`GenerationProperties` 和 `StreamRetryConfig` 集中管理连接超时、总超时、重试次数、退避和心跳窗口；只对可恢复网络错误重试，鉴权、参数和结构业务错误不重试。
+- `2026-07-18` 步骤 48 完成输入、渲染与日志安全：`InputSanitizer` 限制单字段文本、上传大小和请求体大小；`LogSanitizer` 只记录请求 ID、任务、耗时和错误类别，并脱敏 Key、Authorization、Bearer、Token、密码等片段；Markdown 预览继续关闭原始 HTML，模型地址安全边界仍由现有策略执行。
+- `2026-07-18` 步骤 49 实现额度展示与切换引导：`QuotaIndicator.vue` 读取 `/api/quota`，展示系统 Key 剩余分析次数、完整 PRD 次数和全局调用预算；额度耗尽时提示系统 Key 调用被禁止并提供切换到用户 Key 的入口，用户 Key 失败不回退系统 Key。
+- 步骤 46～49 复核时未发现明显实现错误。`2026-07-18` 后端完整回归 195 项全部通过；前端完整回归 46 个测试文件、225 项全部通过；严格 TypeScript 检查和 Vite 生产构建成功。
+- `2026-07-18` 步骤 50 建立核心端到端测试夹具：新增 `frontend/playwright.config.ts`、`frontend/e2e/fixtures/mock-server.ts` 和 `test-helpers.ts`，使用 Vite dev server 与确定性 mock API 覆盖结构化分析、回答、架构推荐、流程图、PRD 流、校验、变更分析、模型连接和额度接口；e2e 不依赖真实网络或真实 API Key。
+- `2026-07-18` 步骤 51 新增 `frontend/e2e/create-and-clarify.spec.ts`，覆盖文字创建、文件入口、第一轮问题、自定义答案、跳过、实时卡片、刷新恢复、分维度完整度和 80% 后继续/生成入口。
+- `2026-07-18` 步骤 52 新增 `frontend/e2e/conflict-and-history.spec.ts`，覆盖锁定、模型矛盾冲突、核心冲突、手动编辑、版本差异和恢复后的刷新保持。
+- `2026-07-18` 步骤 53 新增 `frontend/e2e/generate-prd.spec.ts`，覆盖技术约束、2～3 个架构候选、确认主架构、主/异常流程图、PRD 流、停止、重新生成、编辑/预览、校验导出和右侧面板收起。
+- `2026-07-18` 步骤 54 新增 `frontend/e2e/local-projects.spec.ts`，覆盖两个项目隔离、重命名、复制、归档、回收站、恢复、单项目永久删除、多次刷新和空状态；不提供批量清空回收站。
+- `2026-07-18` 端到端验证完成：普通沙箱下 Playwright 浏览器启动因 `spawn EPERM` 失败，按权限规则提升后 `npm --prefix frontend run test:e2e:chromium` 36 项全部通过；补齐 Firefox PRD/导出冒烟覆盖后，`npm --prefix frontend run test:e2e:firefox` 30 项全部通过。Vite webServer 日志出现 IndexedDB 删除时关闭旧连接的 warning，来源是测试清库流程，不影响通过结果。
+- `2026-07-18` 模型配置体验重构完成：服务商收敛为 DeepSeek、OpenAI 和其他 OpenAI 兼容服务；DeepSeek/OpenAI 自动填充 Base URL 并将 Base URL 放入高级设置，普通状态不再暴露；模型名称改为从后端模型列表接口返回的下拉项，展示友好名称并保留官方模型 ID 用于提交。
+- `2026-07-18` 后端新增 `ModelGateway.listModels()` 与 `POST /api/model-config/models`，通过当前 Key 与当前服务商 Base URL 调用对应 OpenAI 兼容服务的 `GET /models`；模型列表请求同样经过频率限制、上游调用预算、地址安全策略、禁用重定向和 DNS 固定。列表接口不可用或返回空列表时，前端才允许在高级设置中手动填写模型 ID。
+- `2026-07-18` 前端 `modelConfigStore` 调整持久化边界：用户 Key 默认写入 `sessionStorage`，刷新保留、关闭标签页清除；“在此设备记住 Key”开启后才写入 Dexie `app_setting.key = rememberedModelApiKey` 并显示安全提示。服务商、Base URL、模型 ID 和 Temperature 写入 `localStorage`，切换服务商会重置不匹配的 Base URL 与模型，连接测试成功后显示“已连接”状态。
+- `2026-07-18` 本次模型配置重构验证通过：`npm --prefix frontend run test -- modelConfigStore ModelSettingsPanel modelConfigApi` 14 项通过，`npm --prefix frontend run typecheck` 通过，`npm --prefix frontend run test` 46 个测试文件、231 项全部通过，`.\mvnw.cmd test` 后端 199 项全部通过，`npm --prefix frontend run build` 生产构建通过；构建仅保留 Vite 大 chunk 体积提示。
+- `2026-07-18` 工作台体验收敛完成：顶部栏改为统一展示需求澄清、需求确认、架构选择、PRD生成和总体进度；"生成 PRD"按钮在待确认需求、待回答问题、未确认架构、核心冲突或完整度不足时禁用，并显示具体原因。辅助面板默认收起，有待处理事项时显示数量红点，空内容时不再占用主画布宽度。
+- `2026-07-18` 需求与架构页面体验收敛完成：问题向导结束态提供"查看并确认需求卡片"和"继续补充需求"；需求概览和需求卡片页补充已确认、待确认、冲突和下一步提示；需求卡片改用中文类型/状态标签，并将架构候选或 `key: value` 正文拆为结构化字段；架构页默认突出推荐方案，详细三方案比较改为按需展开。
+- `2026-07-18` PRD 页面体验收敛完成：新增章节状态统计，加宽 17 章列表，当前章节工具栏集中显示编辑、预览、保存和重新生成；编辑器与预览区填满主画布，章节列表显示草稿、生成中、已完成和失败状态，避免列表横向滚动和状态不明。
+- `2026-07-18` 本次工作台体验修正验证通过：`npm --prefix frontend run test -- ProjectHeader ProjectWorkspace` 2 个测试文件、27 项通过；`npm --prefix frontend run test` 46 个测试文件、232 项全部通过；`npm --prefix frontend run typecheck` 通过；`npm --prefix frontend run build` 生产构建通过，仅保留 Vite 大 chunk 体积提示；`.\mvnw.cmd test` 后端 199 项全部通过。
+- `2026-07-18` 修复分析页 `timestamp must be a non-empty string` 中断问题：后端自定义 Jackson 配置关闭日期数字时间戳输出，`StreamEventType` 增加 JSON wire name 输出，SSE `data` 中的 `timestamp` 现在为 ISO-8601 字符串、`type` 为小写协议名。新增 `AnalysisControllerTests` 断言事件流 body 包含 `"type":"analysis_started"` 和字符串时间戳；`.\mvnw.cmd test` 后端 199 项全部通过。
+- `2026-07-18` 修复架构页“采用此方案” `structuredClone` 的 `DataCloneError`：`ArchitectureRepository` 在保存、确认、读取候选前统一把 Vue 响应式候选归一化为普通对象，版本快照、变更记录和 IndexedDB 元数据不再接收 Proxy。新增 reactive 候选确认回归测试；`npm --prefix frontend run test -- architectureRepository ArchitectureComparison` 2 个测试文件、5 项通过，`npm --prefix frontend run typecheck` 通过。
+- `2026-07-18` 修复需求概览误显示架构候选问题：新增 `requirementDisplay.ts` 统一识别正式需求、排除 `ARCHITECTURE_CANDIDATE` 架构候选，并复用结构化字段展示。`AnalysisView`、`RequirementSummary`、`RequirementsView` 和 `ProjectWorkspace` 不再把未选择架构草稿算作待确认需求；新增概览恢复态回归测试。`npm --prefix frontend run test -- AnalysisView ProjectWorkspace RequirementInteractions architectureRepository` 4 个测试文件、23 项通过，`npm --prefix frontend run typecheck` 通过。
+- `2026-07-18` 修复低完整度页面引导断裂问题：工作台顶部在正式需求为 0 时显示“待补充/无需求”，生成 PRD 禁用原因优先提示“还没有已确认需求”；`RequirementsView` 在无正式需求时显示独立空状态和“回到需求概览”主按钮；`AnalysisView` 不再把 0 正式需求状态引导到架构页，而是提供“重新分析需求”。`AnalysisStateRepository.saveFinal()` 保存新分析结果时保留既有架构候选，避免重新分析需求时丢掉已确认架构。`npm --prefix frontend run test -- ProjectWorkspace RequirementsView AnalysisView analysisStateRepository` 4 个测试文件、22 项通过，`npm --prefix frontend run typecheck` 通过。
+- `2026-07-18` 修复首次 AI 分析失败提示不清晰问题：`AnalysisOrchestrator` 不再把模型异常统一压成 `ANALYSIS_FAILED`，会按 `ModelGatewayException.Kind` 输出 `MODEL_UNREACHABLE`、`MODEL_AUTHENTICATION_FAILED`、`MODEL_NOT_FOUND`、`MODEL_RATE_LIMITED`、`MODEL_TIMEOUT` 等稳定码；前端 `consumePostSse()` 将失败码转换为中文可操作提示，`AnalysisView` 在尚未生成问题时明确显示“AI 还没有生成澄清问题”。验证：`.\mvnw.cmd test "-Dtest=AnalysisOrchestratorTests"` 4 项通过，`npm --prefix frontend run test -- sseClient AnalysisView` 2 个测试文件、9 项通过，`npm --prefix frontend run typecheck` 通过。
+- `2026-07-18` 修复 DeepSeek 结构化分析兼容问题：`SpringAiModelGateway` 对 DeepSeek 端点或 `deepseek-*` 模型 ID 不再发送 OpenAI JSON Schema 响应格式，改用 DeepSeek 支持的 `json_object` 响应格式，并额外注入“只返回 JSON、不要 Markdown”的结构化提示；OpenAI 和其他兼容服务仍保持 JSON Schema 模式。上游 400/422 现在映射为 `FORMAT_INCOMPATIBLE`，不会误报为模型服务内部错误。验证：`.\mvnw.cmd test "-Dtest=SpringAiModelGatewayTests"` 6 项通过。
+- `2026-07-18` 修复 DeepSeek JSON 模式返回字段不完整导致 `ANALYSIS_OUTPUT_INVALID` 的问题：`RequirementAnalyzer.OUTPUT_SCHEMA` 从顶层数组提示扩展为完整契约，覆盖项目名、需求项、澄清问题、选项、评分和允许枚举，并强化系统提示要求只返回请求的 JSON 对象、模型需求状态只能是 `INFERRED/PENDING`。验证：`.\mvnw.cmd test "-Dtest=RequirementAnalyzerTests,SpringAiModelGatewayTests"` 10 项通过。
+- `2026-07-18` 收紧 AI 澄清问题契约：`RequirementAnalyzer` 现在只允许模型输出 `SINGLE_SELECT` 或 `MULTI_SELECT` 问题，每题必须提供至少两个具体选项；`TEXT` 和 `CONFIRMATION` 不再作为模型生成问题类型进入分析状态，开放式内容保留为前端自定义答案和补充说明。验证：`.\mvnw.cmd test "-Dtest=RequirementAnalyzerTests"` 5 项通过。
+- `2026-07-18` 修复已确认架构后问题向导仍不清晰的问题：`QuestionWizardView` 会在架构已确认但仍有待回答问题时提示当前还需完成需求澄清；`AnswerForm` 对旧版本保存的 `TEXT/options=[]` 问题提供临时可选答案并提示重新分析后生成正式选项，避免继续显示无选项大文本框。验证：`npm --prefix frontend run test -- QuestionBatch QuestionWizardView` 2 个测试文件、4 项通过，`npm --prefix frontend run typecheck` 通过。
+- `2026-07-18` 问题向导收敛为 AI 需求访谈页：页面明确说明 AI 已读取初始需求并通过多轮问题补全 PRD，批次标题显示本轮追问和已回答数量，主按钮改为"提交回答，让 AI 继续追问"且未回答时禁用；完成态改为"查看已整理需求"和"补充想法让 AI 继续追问"。验证：`npm --prefix frontend run test -- QuestionWizardView QuestionBatch` 2 个测试文件、4 项通过，`npm --prefix frontend run typecheck` 通过。
+- `2026-07-18` 多轮追问目标收敛为 12 项 PRD 覆盖清单：后端新增 `PrdCoverageArea`，分析提示和上下文强制围绕产品背景与目标、用户角色与使用场景、功能范围与优先级、核心业务流程、用户故事、业务规则与异常场景、页面清单与页面状态、数据实体与字段、接口需求、验收标准、非功能需求、假设风险与待确认事项继续追问；新增 `NON_FUNCTIONAL_REQUIREMENT` 和 `RISK_OPEN_ITEM` 需求类型并补齐前端中文展示。问题向导展示"最终 PRD 至少覆盖"清单并高亮本轮涉及项。验证：`.\mvnw.cmd test "-Dtest=RequirementAnalyzerTests,QuestionSelectorTests,CompletenessCalculatorTests,PrdDefinitionTests"` 22 项通过，`npm --prefix frontend run test -- QuestionWizardView QuestionBatch` 2 个测试文件、4 项通过，`npm --prefix frontend run typecheck` 通过。
+- `2026-07-18` 收敛 PRD 技术内容边界：第 8 章改为“技术决策摘要与工程约束”，`PrdGenerator` 不再把完整架构候选、评分矩阵、备选理由或比较元数据送入 PRD 提示词，只传已确认架构的 ID、标题和约束摘要；`PrdValidator` 不再要求详细架构章节，改为在详细架构设计或评分比较混入 PRD 时给出警告。同步更新前端章节标题、e2e mock 文案、设计文档和实施计划口径。验证：PRD 专项后端 24 项通过，`.\mvnw.cmd test` 后端 204 项全部通过，`npm --prefix frontend run test` 47 个测试文件、240 项全部通过，`npm --prefix frontend run typecheck` 通过，残留旧文案检索和 `git diff --check` 通过。
+- `2026-07-18` 修复需求概览在已采用架构方案后仍提示“进入架构建议”的问题：`AnalysisView` 现在和工作台顶部一样读取 `ArchitectureRepository.selected(projectId)`，下一步顺序统一为澄清问题、确认需求、确认架构、生成业务流程图或查看 PRD。验证：`npm --prefix frontend run test -- AnalysisView` 1 个测试文件、5 项通过，`npm --prefix frontend run typecheck` 通过。
+- `2026-07-18` 工作台三栏手动调宽完成：`AppShell` 的全局左栏和 `ProjectWorkspace` 的项目模块栏新增垂直拖拽手柄，宽度分别保存到 `localStorage`，主内容区自动占用剩余空间；`ProjectNavigation` 在窄栏下对模块名做省略显示，避免撑开布局。验证：`npm --prefix frontend run test -- AppShell ProjectWorkspace` 2 个测试文件、23 项通过，`npm --prefix frontend run typecheck` 通过。
+- `2026-07-18` 修复“补充想法让 AI 继续追问”误跳转项目概览：`QuestionWizardView` 在当前需求澄清页内展开补充输入区，补充为空禁用提交，生成中禁用重复提交，失败时保留补充内容；提交后复用 `/api/analysis/answers`，请求同时携带原始项目想法、已确认需求所在当前状态、历史问答和本轮补充想法，成功后在当前页展示下一轮问题。后端 `AnalysisAnswersRequest` 新增 `originalInput/supplementalInput`，`AnalysisContextBuilder` 改为向模型提供历史问答；`ProjectWorkspace` 顶部步骤不再因单轮问题结束就把需求澄清显示为已完成。验证：`npm --prefix frontend run test -- QuestionWizardView ProjectWorkspace` 2 个测试文件、22 项通过；`.\mvnw.cmd test "-Dtest=AnalysisContextBuilderTests,AnalysisControllerTests"` 5 项通过；`npm --prefix frontend run test` 47 个测试文件、247 项全部通过；`npm --prefix frontend run typecheck` 通过；`npm --prefix frontend run build` 通过，仅保留 Vite 大 chunk 体积提示；`.\mvnw.cmd test` 后端 204 项全部通过。
+- `2026-07-18` 修复“提交回答，让 AI 继续追问”在只回答部分问题时显示错误：`QuestionBatch` 普通提交现在只提交已回答或已单题跳过的问题，不再把未填写的问题一起传给 `ClarificationRepository.submitBatch()`；“跳过本轮”仍会把整轮问题全部标记跳过。验证：`npm --prefix frontend run test -- QuestionBatch QuestionWizardView` 2 个测试文件、6 项通过；`npm --prefix frontend run typecheck` 通过；`npm --prefix frontend run test` 47 个测试文件、248 项全部通过。
+- `2026-07-18` 修复 AI 澄清页单题提交导致等待过多的问题：`QuestionWizardView` 不再把当前问题批次截断为 1 条，`QuestionBatch` 会渲染本轮全部问题，要求每题已回答或已跳过后才允许“提交本轮回答”；“采用AI建议”会为本轮全部题目预填推荐选项，“跳过本轮”一次提交全部跳过，因此每轮只触发一次 AI 整理。验证：`npm --prefix frontend run test -- QuestionBatch QuestionWizardView` 2 个测试文件、8 项通过；`npm --prefix frontend run typecheck` 通过。
+- `2026-07-18` 修复跳到下一轮时被上一轮 AI 整理锁住的问题：`QuestionWizardView.submit()` 在本地保存本轮答案后会先检查是否还有待回答问题；若仍有下一批问题，则不调用 `/api/analysis/answers`，立即释放输入并允许用户继续答题。只有本地现有问题全部答完后，才统一请求 AI 整理回答并生成新问题，避免上一轮整理阻塞下一轮回答或覆盖用户正在填写的草稿。验证：`npm --prefix frontend run test -- QuestionWizardView QuestionBatch` 2 个测试文件、9 项通过；`npm --prefix frontend run typecheck` 通过。
+- `2026-07-18` 修复切换到下一轮后页面仍停在底部提交区的问题：`QuestionWizardView` 为当前批次顶部增加滚动锚点，并在批次问题 ID 变化后等待 DOM 更新再调用 `scrollIntoView({ block: 'start', behavior: 'smooth' })`，让下一轮自动定位到本轮开头和第一个问题附近。验证：`npm --prefix frontend run test -- QuestionWizardView QuestionBatch` 2 个测试文件、9 项通过；`npm --prefix frontend run typecheck` 通过。
+- `2026-07-18` 修复 AI 澄清长页面滚动体验：`AppShell` 和 `ProjectWorkspace` 改为 100vh 视口内布局，主画布独立滚动，项目二级导航和右侧辅助入口不再随问题列表滚出后留下中间空白。`QuestionBatch` 只保留底部粘性操作按钮，避免顶部和底部出现重复按钮。验证：`npm --prefix frontend run test -- QuestionBatch` 1 个测试文件、3 项通过；`npm --prefix frontend run typecheck` 通过。
+- `2026-07-18` 修复低完整度 PRD 草稿页问题：`QuestionWizardView` 在完整度不足 80% 或仍有核心冲突且没有待答问题时自动请求下一轮追问，不再展示“信息还不够完整，可以先生成PRD草稿”的中间页；`QuestionBatch` 低完整度时不显示生成 PRD 按钮；`ProjectWorkspace` 顶部生成入口同步要求 80% 且无核心冲突。`RequirementAnalyzer` 在模型返回空问题但完整度不足时会按 PRD 覆盖项生成兜底问题。验证：`npm --prefix frontend run test` 47 个测试文件、264 项通过；`npm --prefix frontend run typecheck` 通过；`npm --prefix frontend run build` 通过，仅保留 Vite 大 chunk 提示；`.\mvnw.cmd test` 后端 207 项通过；`git diff --check` 无空白错误。
 
 ## 下一步
 
-执行 `memory-bank/implementation-plan.md` 步骤 16，实现 OpenAI 兼容适配器。
+执行 `memory-bank/implementation-plan.md` 步骤 55，完成 JAR 与 Docker 交付。

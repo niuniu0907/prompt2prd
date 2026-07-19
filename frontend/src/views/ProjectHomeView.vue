@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue'
-import { useRouter } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 
 import {
   projectRepository,
@@ -15,6 +15,13 @@ import AppShell from '@/layouts/AppShell.vue'
 const props = defineProps<{ repository?: ProjectHomeRepository }>()
 const repository = props.repository ?? projectRepository
 const router = useRouter()
+const route = useRoute()
+
+function resolveInitialView(): ProjectListFilter {
+  const q = route.query.view
+  if (q === 'ACTIVE' || q === 'ARCHIVED' || q === 'DELETED') return q
+  return 'ACTIVE'
+}
 
 const viewContent: Record<
   ProjectListFilter,
@@ -40,7 +47,7 @@ const viewContent: Record<
   },
 }
 
-const activeView = ref<ProjectListFilter>('ACTIVE')
+const activeView = ref<ProjectListFilter>(resolveInitialView())
 const summaries = ref<ProjectSummary[]>([])
 const loading = ref(true)
 const errorMessage = ref('')
@@ -111,6 +118,10 @@ function createProject() {
   void router.push({ name: 'new-project' })
 }
 
+function openProject(projectId: string) {
+  void router.push({ name: 'project-overview', params: { projectId } })
+}
+
 watch(activeView, () => {
   summaries.value = []
   statusMessage.value = ''
@@ -173,6 +184,7 @@ onMounted(() => {
           :projects="summaries"
           :view="activeView"
           :busy-project-id="busyProjectId"
+          @open="openProject"
           @rename="renameProject"
           @copy="copyProject"
           @archive="archiveProject"

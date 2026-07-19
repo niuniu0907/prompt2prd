@@ -12,6 +12,18 @@ export const PROJECT_MODULES = [
 
 export type ProjectModule = (typeof PROJECT_MODULES)[number]
 
+export const PRIMARY_PROJECT_MODULES = [
+  'overview',
+  'questions',
+  'requirements',
+  'prd',
+] as const
+
+export const OPTIONAL_PROJECT_MODULES = [
+  'flowchart',
+  'architecture',
+] as const
+
 export const PROJECT_STAGES = [
   'CLARIFYING',
   'ARCHITECTURE',

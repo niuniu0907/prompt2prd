@@ -1,15 +1,70 @@
 <script setup lang="ts">
+import { computed, inject, onBeforeUnmount, ref } from 'vue'
+import { routerKey } from 'vue-router'
+
 import type { ProjectListFilter } from '@/db/repositories/projectRepository'
 
-withDefaults(defineProps<{ activeSection?: ProjectListFilter }>(), {
+export type AppSection = ProjectListFilter | 'MODEL_SETTINGS'
+
+withDefaults(defineProps<{ activeSection?: AppSection }>(), {
   activeSection: 'ACTIVE',
 })
 
 defineEmits<{ navigate: [section: ProjectListFilter] }>()
+
+const router = inject(routerKey, null)
+const SIDEBAR_WIDTH_KEY = 'prompt2prd:layout:appSidebarWidth'
+const sidebarWidth = ref(readStoredWidth(SIDEBAR_WIDTH_KEY, 244, 196, 380))
+const resizingSidebar = ref(false)
+const shellColumns = computed(() => `${sidebarWidth.value}px 7px minmax(0, 1fr)`)
+
+let startX = 0
+let startWidth = 0
+
+function openModelSettings() {
+  void router?.push({ name: 'model-settings' })
+}
+
+function readStoredWidth(key: string, fallback: number, min: number, max: number) {
+  const raw = window.localStorage.getItem(key)
+  const parsed = raw ? Number.parseInt(raw, 10) : Number.NaN
+  return clamp(Number.isFinite(parsed) ? parsed : fallback, min, max)
+}
+
+function clamp(value: number, min: number, max: number) {
+  return Math.max(min, Math.min(max, Math.round(value)))
+}
+
+function startSidebarResize(event: MouseEvent) {
+  resizingSidebar.value = true
+  startX = event.clientX
+  startWidth = sidebarWidth.value
+  document.body.style.cursor = 'col-resize'
+  document.body.style.userSelect = 'none'
+  window.addEventListener('mousemove', resizeSidebar)
+  window.addEventListener('mouseup', stopSidebarResize)
+}
+
+function resizeSidebar(event: MouseEvent) {
+  if (!resizingSidebar.value) return
+  sidebarWidth.value = clamp(startWidth + event.clientX - startX, 196, 380)
+}
+
+function stopSidebarResize() {
+  if (!resizingSidebar.value) return
+  resizingSidebar.value = false
+  window.localStorage.setItem(SIDEBAR_WIDTH_KEY, String(sidebarWidth.value))
+  document.body.style.cursor = ''
+  document.body.style.userSelect = ''
+  window.removeEventListener('mousemove', resizeSidebar)
+  window.removeEventListener('mouseup', stopSidebarResize)
+}
+
+onBeforeUnmount(stopSidebarResize)
 </script>
 
 <template>
-  <div class="app-shell">
+  <div class="app-shell" :style="{ gridTemplateColumns: shellColumns }">
     <aside class="app-sidebar">
       <div class="brand" aria-label="Prompt2PRD">
         <span class="brand__mark" aria-hidden="true">
@@ -59,7 +114,13 @@ defineEmits<{ navigate: [section: ProjectListFilter] }>()
             </svg>
             <span>回收站</span>
           </button>
-          <button class="sidebar-nav__item" type="button" disabled aria-disabled="true">
+          <button
+            :class="['sidebar-nav__item', { 'sidebar-nav__item--active': activeSection === 'MODEL_SETTINGS' }]"
+            type="button"
+            data-navigation="MODEL_SETTINGS"
+            :aria-current="activeSection === 'MODEL_SETTINGS' ? 'page' : undefined"
+            @click="openModelSettings"
+          >
             <svg viewBox="0 0 24 24" aria-hidden="true">
               <circle cx="12" cy="12" r="3" />
               <path d="M19.4 15a1.7 1.7 0 0 0 .34 1.88l.06.06-2.86 2.86-.06-.06A1.7 1.7 0 0 0 15 19.4a1.7 1.7 0 0 0-1 .6 1.7 1.7 0 0 0-.4 1.1V21H9.55v-.09A1.7 1.7 0 0 0 8.5 19.4a1.7 1.7 0 0 0-1.88.34l-.06.06-2.86-2.86.06-.06A1.7 1.7 0 0 0 4.1 15a1.7 1.7 0 0 0-.6-1 1.7 1.7 0 0 0-1.1-.4H2.3V9.55h.1A1.7 1.7 0 0 0 4.1 8.5a1.7 1.7 0 0 0-.34-1.88l-.06-.06L6.56 3.7l.06.06A1.7 1.7 0 0 0 8.5 4.1a1.7 1.7 0 0 0 1-.6 1.7 1.7 0 0 0 .4-1.1V2.3h4.05v.1A1.7 1.7 0 0 0 15 4.1a1.7 1.7 0 0 0 1.88-.34l.06-.06 2.86 2.86-.06.06A1.7 1.7 0 0 0 19.4 8.5a1.7 1.7 0 0 0 .6 1 1.7 1.7 0 0 0 1.1.4h.1v4.05h-.1A1.7 1.7 0 0 0 19.4 15Z" />
@@ -78,6 +139,16 @@ defineEmits<{ navigate: [section: ProjectListFilter] }>()
       </div>
     </aside>
 
+    <div
+      class="app-shell__resizer"
+      :class="{ 'app-shell__resizer--active': resizingSidebar }"
+      role="separator"
+      aria-label="调整全局导航宽度"
+      aria-orientation="vertical"
+      data-testid="app-sidebar-resizer"
+      @mousedown.prevent="startSidebarResize"
+    ></div>
+
     <section class="app-shell__content">
       <slot />
     </section>
@@ -87,8 +158,9 @@ defineEmits<{ navigate: [section: ProjectListFilter] }>()
 <style scoped>
 .app-shell {
   display: grid;
-  grid-template-columns: 244px minmax(0, 1fr);
+  height: 100vh;
   min-height: 100vh;
+  overflow: hidden;
   background: var(--color-background);
 }
 
@@ -101,6 +173,30 @@ defineEmits<{ navigate: [section: ProjectListFilter] }>()
   padding: 22px 16px 18px;
   border-right: 1px solid var(--color-border);
   background: var(--color-surface);
+}
+
+.app-shell__resizer {
+  position: sticky;
+  top: 0;
+  z-index: 8;
+  height: 100vh;
+  cursor: col-resize;
+  background: transparent;
+}
+
+.app-shell__resizer::before {
+  display: block;
+  width: 1px;
+  height: 100%;
+  margin: 0 auto;
+  background: var(--color-border);
+  content: "";
+}
+
+.app-shell__resizer:hover::before,
+.app-shell__resizer--active::before {
+  width: 3px;
+  background: var(--color-accent);
 }
 
 .brand {
@@ -202,11 +298,6 @@ defineEmits<{ navigate: [section: ProjectListFilter] }>()
   box-shadow: inset 0 0 0 1px rgba(79, 101, 27, 0.09);
 }
 
-.sidebar-nav__item:disabled {
-  color: var(--color-text-muted);
-  cursor: not-allowed;
-}
-
 .sidebar-status {
   display: flex;
   align-items: flex-start;
@@ -245,13 +336,12 @@ defineEmits<{ navigate: [section: ProjectListFilter] }>()
 
 .app-shell__content {
   min-width: 0;
+  min-height: 0;
+  overflow: auto;
+  scrollbar-gutter: stable;
 }
 
 @media (max-width: 1080px) {
-  .app-shell {
-    grid-template-columns: 220px minmax(0, 1fr);
-  }
-
   .app-sidebar {
     padding-inline: 12px;
   }

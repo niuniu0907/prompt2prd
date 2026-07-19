@@ -128,6 +128,25 @@ describe('ProjectHomeView', () => {
     expect(wrapper.text()).not.toContain('归档项目')
   })
 
+  it('opens an active project card in the overview workspace', async () => {
+    const active = summary('76deeeab-70cf-41af-92a2-24ff466ca1b1', '可进入项目', 'ACTIVE')
+    const repository = createRepository({ ACTIVE: [active] })
+    const router = createAppRouter(createMemoryHistory())
+    await router.push('/')
+    await router.isReady()
+    const wrapper = mount(ProjectHomeView, {
+      props: { repository },
+      global: { plugins: [router] },
+    })
+    await flushPromises()
+
+    await wrapper.get('h3').trigger('click')
+    await flushPromises()
+
+    expect(router.currentRoute.value.name).toBe('project-overview')
+    expect(router.currentRoute.value.params.projectId).toBe(active.project.id)
+  })
+
   it('routes card operations through the Repository and reloads the current view', async () => {
     const active = summary('76deeeab-70cf-41af-92a2-24ff466ca1b1', '可操作项目', 'ACTIVE')
     const deleted = summary('df423353-4358-48c6-ae0a-82104962e51d', '待删除项目', 'DELETED')

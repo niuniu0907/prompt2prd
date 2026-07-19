@@ -2,11 +2,12 @@ import 'fake-indexeddb/auto'
 
 import { flushPromises, mount } from '@vue/test-utils'
 import { createMemoryHistory } from 'vue-router'
-import { describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import type { ProjectLookupRepository } from '@/db/repositories/projectRepository'
+import type { AnalysisState, AnalysisStateStore } from '@/db/repositories/analysisStateRepository'
 import type { Project } from '@/features/projects/types'
-import { PROJECT_MODULES } from '@/features/projects/types'
+import { OPTIONAL_PROJECT_MODULES, PRIMARY_PROJECT_MODULES, PROJECT_MODULES } from '@/features/projects/types'
 import ProjectWorkspace from '@/layouts/ProjectWorkspace.vue'
 import { createAppRouter } from '@/router'
 
@@ -38,6 +39,8 @@ function createRepository(overrides?: Partial<ProjectLookupRepository>): Project
 async function mountWorkspace(
   repository: ProjectLookupRepository,
   initialRoute = `/projects/${project.id}/overview`,
+  stateStore?: AnalysisStateStore,
+  architectureSelected: (projectId: string) => Promise<unknown> = vi.fn(async () => null),
 ) {
   const history = createMemoryHistory()
   const router = createAppRouter(history)
@@ -46,7 +49,11 @@ async function mountWorkspace(
   await router.isReady()
 
   const wrapper = mount(ProjectWorkspace, {
-    props: { repository },
+    props: {
+      repository,
+      stateStore: stateStore ?? emptyStateStore(),
+      architectureSelected,
+    },
     global: {
       plugins: [router],
     },
@@ -56,7 +63,157 @@ async function mountWorkspace(
   return { wrapper, router }
 }
 
+function architectureOnlyStateStore(): AnalysisStateStore {
+  return {
+    load: vi.fn(async (): Promise<AnalysisState> => ({
+      project: { ...project, stage: 'ARCHITECTURE', completeness: 12 },
+      requirements: [
+        {
+          id: '50000000-0000-4000-8000-000000000000',
+          projectId: project.id,
+          type: 'TECHNICAL_CONSTRAINT',
+          title: 'Vue 3 + Spring Boot 单体',
+          content: 'frontend: Vue 3 + TypeScript',
+          status: 'CONFIRMED',
+          sourceType: 'USER_ANSWER',
+          sourceId: null,
+          locked: false,
+          metadata: { kind: 'ARCHITECTURE_CANDIDATE' },
+          createdAt: '2026-07-17T08:00:00.000Z',
+          updatedAt: '2026-07-17T08:00:00.000Z',
+        },
+      ],
+      questions: [],
+      answers: [],
+      conflicts: [],
+      completeness: { total: 12, dimensions: [], pendingCount: 0, hasCoreConflict: false },
+    })),
+    saveFinal: vi.fn(),
+  }
+}
+
+function emptyStateStore(): AnalysisStateStore {
+  return {
+    load: vi.fn(async () => undefined),
+    saveFinal: vi.fn(),
+  }
+}
+
+function pendingStateStore(): AnalysisStateStore {
+  return {
+    load: vi.fn(async (): Promise<AnalysisState> => ({
+      project,
+      requirements: [
+        {
+          id: '20000000-0000-4000-8000-000000000001',
+          projectId: project.id,
+          type: 'FEATURE',
+          title: '在线支付',
+          content: '支持订单在线支付',
+          status: 'PENDING',
+          sourceType: 'AI_RECOMMENDATION',
+          sourceId: null,
+          locked: false,
+          metadata: {},
+          createdAt: '2026-07-17T08:00:00.000Z',
+          updatedAt: '2026-07-17T08:00:00.000Z',
+        },
+      ],
+      questions: [
+        {
+          id: '30000000-0000-4000-8000-000000000001',
+          projectId: project.id,
+          batchId: '30000000-0000-4000-8000-000000000002',
+          text: '是否需要支付？',
+          reason: '影响订单闭环',
+          dimension: 'BUSINESS_RULES',
+          targetField: 'payment',
+          semanticKey: 'payment',
+          inputType: 'CONFIRMATION',
+          options: [],
+          priority: 5,
+          status: 'PENDING',
+          createdAt: '2026-07-17T08:00:00.000Z',
+          updatedAt: '2026-07-17T08:00:00.000Z',
+        },
+      ],
+      answers: [],
+      conflicts: [
+        {
+          id: '40000000-0000-4000-8000-000000000001',
+          projectId: project.id,
+          leftRequirementId: null,
+          rightRequirementId: null,
+          leftContent: '只支持线下支付',
+          rightContent: '支持在线支付',
+          impact: '支付链路冲突',
+          core: false,
+          status: 'OPEN',
+          resolution: null,
+          createdAt: '2026-07-17T08:00:00.000Z',
+          updatedAt: '2026-07-17T08:00:00.000Z',
+          resolvedAt: null,
+        },
+      ],
+      completeness: { total: 45, dimensions: [], pendingCount: 2, hasCoreConflict: false },
+    })),
+    saveFinal: vi.fn(),
+  }
+}
+
+function roundCompletedStateStore(): AnalysisStateStore {
+  return {
+    load: vi.fn(async (): Promise<AnalysisState> => ({
+      project,
+      requirements: [
+        {
+          id: '20000000-0000-4000-8000-000000000002',
+          projectId: project.id,
+          type: 'FEATURE',
+          title: '在线支付',
+          content: '支持订单在线支付',
+          status: 'CONFIRMED',
+          sourceType: 'USER_ANSWER',
+          sourceId: null,
+          locked: false,
+          metadata: {},
+          createdAt: '2026-07-17T08:00:00.000Z',
+          updatedAt: '2026-07-17T08:00:00.000Z',
+        },
+      ],
+      questions: [
+        {
+          id: '30000000-0000-4000-8000-000000000003',
+          projectId: project.id,
+          batchId: '30000000-0000-4000-8000-000000000004',
+          text: '是否需要支付？',
+          reason: '影响订单闭环',
+          dimension: 'BUSINESS_RULES',
+          targetField: 'payment',
+          semanticKey: 'payment',
+          inputType: 'SINGLE_SELECT',
+          options: [],
+          priority: 5,
+          status: 'ANSWERED',
+          createdAt: '2026-07-17T08:00:00.000Z',
+          updatedAt: '2026-07-17T08:00:00.000Z',
+        },
+      ],
+      answers: [],
+      conflicts: [],
+      completeness: { total: 60, dimensions: [], pendingCount: 0, hasCoreConflict: false },
+    })),
+    saveFinal: vi.fn(),
+  }
+}
+
 describe('ProjectWorkspace', () => {
+  afterEach(() => {
+    window.localStorage.removeItem('prompt2prd:layout:projectNavWidth')
+    document.body.style.cursor = ''
+    document.body.style.userSelect = ''
+  })
+
   it('shows a loading state while fetching the project', () => {
     const repository = createRepository({
       getById: vi.fn(
@@ -105,18 +262,39 @@ describe('ProjectWorkspace', () => {
     const { wrapper } = await mountWorkspace(repository)
 
     wrapper.get('[data-testid="project-workspace"]')
+    wrapper.get('.app-shell__content')
+    wrapper.get('.workspace__canvas')
     expect(wrapper.text()).toContain('宠物寄养平台')
-    expect(wrapper.get('[data-testid="header-completeness"]').text()).toBe('45%')
+    expect(wrapper.text()).toContain('需求输入')
+    expect(wrapper.text()).toContain('需求完整度：45%')
+    expect(wrapper.text()).not.toContain('总体进度')
   })
 
-  it('displays all secondary navigation items', async () => {
+  it('lets users resize the project module column and keeps the width locally', async () => {
+    const repository = createRepository()
+    const { wrapper } = await mountWorkspace(repository)
+    const resizer = wrapper.get('[data-testid="project-nav-resizer"]').element
+
+    resizer.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, clientX: 240 }))
+    window.dispatchEvent(new MouseEvent('mousemove', { clientX: 300 }))
+    window.dispatchEvent(new MouseEvent('mouseup'))
+    await flushPromises()
+
+    expect((wrapper.get('.workspace__body').element as HTMLElement).style.gridTemplateColumns).toContain('300px')
+    expect(window.localStorage.getItem('prompt2prd:layout:projectNavWidth')).toBe('300')
+  })
+
+  it('displays four primary navigation items and keeps tools collapsed', async () => {
     const repository = createRepository()
     const { wrapper } = await mountWorkspace(repository)
 
-    const navLabels = ['需求概览', '问题向导', '需求卡片', '架构建议', '流程图', 'PRD']
+    const navLabels = ['需求输入', 'AI澄清', '需求结果', 'PRD文档']
     for (const label of navLabels) {
       expect(wrapper.text()).toContain(label)
     }
+    expect(wrapper.text()).toContain('更多工具')
+    expect(wrapper.text()).not.toContain('流程图')
+    expect(wrapper.text()).not.toContain('架构建议')
   })
 
   it('has only one active module at a time', async () => {
@@ -134,7 +312,17 @@ describe('ProjectWorkspace', () => {
     const repository = createRepository()
     const { wrapper, router } = await mountWorkspace(repository)
 
-    for (const mod of PROJECT_MODULES) {
+    for (const mod of PRIMARY_PROJECT_MODULES) {
+      await wrapper.get(`[data-module="${mod}"]`).trigger('click')
+      await flushPromises()
+
+      expect(router.currentRoute.value.name).toBe(`project-${mod}`)
+      wrapper.get('[data-testid="project-workspace"]')
+      expect(wrapper.text()).toContain('宠物寄养平台')
+    }
+
+    await wrapper.get('[data-testid="more-tools-toggle"]').trigger('click')
+    for (const mod of OPTIONAL_PROJECT_MODULES) {
       await wrapper.get(`[data-module="${mod}"]`).trigger('click')
       await flushPromises()
 
@@ -153,47 +341,49 @@ describe('ProjectWorkspace', () => {
 
     expect(router.currentRoute.value.params.projectId).toBe(project.id)
 
+    await wrapper.get('[data-testid="more-tools-toggle"]').trigger('click')
     await wrapper.get('[data-module="architecture"]').trigger('click')
     await flushPromises()
 
     expect(router.currentRoute.value.params.projectId).toBe(project.id)
   })
 
-  it('has a collapsible right panel', async () => {
+  it('shows a collapsed right panel only when there are pending items', async () => {
     const repository = createRepository()
-    const { wrapper } = await mountWorkspace(repository)
+    const { wrapper } = await mountWorkspace(repository, `/projects/${project.id}/overview`, pendingStateStore())
 
     const panel = wrapper.get('[data-testid="workspace-right-panel"]')
-    expect(panel.attributes('aria-expanded')).toBe('true')
+    expect(panel.attributes('aria-expanded')).toBe('false')
 
     await wrapper.get('[data-testid="panel-toggle"]').trigger('click')
     await flushPromises()
 
-    expect(panel.attributes('aria-expanded')).toBe('false')
-    expect(panel.classes()).toContain('workspace__panel--collapsed')
+    expect(panel.attributes('aria-expanded')).toBe('true')
+    expect(wrapper.text()).toContain('待确认需求：1 条')
   })
 
   it('toggles the right panel back open after collapsing', async () => {
     const repository = createRepository()
-    const { wrapper } = await mountWorkspace(repository)
+    const { wrapper } = await mountWorkspace(repository, `/projects/${project.id}/overview`, pendingStateStore())
 
     const panel = wrapper.get('[data-testid="workspace-right-panel"]')
     const toggle = wrapper.get('[data-testid="panel-toggle"]')
 
     await toggle.trigger('click')
     await flushPromises()
-    expect(panel.attributes('aria-expanded')).toBe('false')
+    expect(panel.attributes('aria-expanded')).toBe('true')
 
     await toggle.trigger('click')
     await flushPromises()
-    expect(panel.attributes('aria-expanded')).toBe('true')
+    expect(panel.attributes('aria-expanded')).toBe('false')
   })
 
-  it('defaults the right panel to collapsed on flowchart page', async () => {
+  it('keeps the right panel collapsed by default on flowchart page', async () => {
     const repository = createRepository()
     const { wrapper } = await mountWorkspace(
       repository,
       `/projects/${project.id}/flowchart`,
+      pendingStateStore(),
     )
 
     const panel = wrapper.get('[data-testid="workspace-right-panel"]')
@@ -201,11 +391,12 @@ describe('ProjectWorkspace', () => {
     expect(panel.classes()).toContain('workspace__panel--collapsed')
   })
 
-  it('defaults the right panel to collapsed on PRD page', async () => {
+  it('keeps the right panel collapsed by default on PRD page', async () => {
     const repository = createRepository()
     const { wrapper } = await mountWorkspace(
       repository,
       `/projects/${project.id}/prd`,
+      pendingStateStore(),
     )
 
     const panel = wrapper.get('[data-testid="workspace-right-panel"]')
@@ -213,7 +404,7 @@ describe('ProjectWorkspace', () => {
     expect(panel.classes()).toContain('workspace__panel--collapsed')
   })
 
-  it('defaults the right panel to expanded on non-flowchart/PRD pages', async () => {
+  it('does not render the right panel when there is no auxiliary content', async () => {
     const repository = createRepository()
 
     for (const mod of PROJECT_MODULES) {
@@ -222,25 +413,70 @@ describe('ProjectWorkspace', () => {
       const { wrapper } = await mountWorkspace(
         repository,
         `/projects/${project.id}/${mod}`,
+        emptyStateStore(),
       )
 
-      const panel = wrapper.get('[data-testid="workspace-right-panel"]')
-      expect(panel.attributes('aria-expanded')).toBe('true')
+      expect(wrapper.find('[data-testid="workspace-right-panel"]').exists()).toBe(false)
     }
   })
 
-  it('emits generatePrd when the header button is clicked', async () => {
+  it('does not emit generatePrd when prerequisites are missing', async () => {
     const repository = createRepository()
     const { wrapper } = await mountWorkspace(repository)
 
     await wrapper.get('[data-testid="header-generate-prd"]').trigger('click')
-    expect(wrapper.emitted('generatePrd')).toHaveLength(1)
+    expect(wrapper.emitted('generatePrd')).toBeUndefined()
+    expect(wrapper.text()).toContain('首次 AI 解析完成后会进入 AI 澄清')
   })
 
-  it('shows a placeholder message in the right panel', async () => {
+  it('does not unlock PRD generation from legacy architecture candidates alone', async () => {
     const repository = createRepository()
-    const { wrapper } = await mountWorkspace(repository)
+    const { wrapper } = await mountWorkspace(
+      repository,
+      `/projects/${project.id}/requirements`,
+      architectureOnlyStateStore(),
+      vi.fn(async () => ({ id: '50000000-0000-4000-8000-000000000000' })),
+    )
 
-    expect(wrapper.text()).toContain('辅助面板')
+    expect(wrapper.text()).toContain('需求完整度：12%')
+    expect(wrapper.get('[data-testid="header-generate-prd"]').attributes('disabled')).toBeDefined()
+    expect(wrapper.get('[data-testid="header-generate-hint"]').text()).toBe('首次 AI 解析完成后会进入 AI 澄清。')
+  })
+
+  it('keeps clarification on the AI clarification page after a round is answered', async () => {
+    const repository = createRepository()
+    const { wrapper } = await mountWorkspace(
+      repository,
+      `/projects/${project.id}/questions`,
+      roundCompletedStateStore(),
+    )
+
+    expect(wrapper.text()).toContain('AI澄清')
+    expect(wrapper.text()).toContain('需求完整度：60%')
+    expect(wrapper.text()).toContain('信息还不够完整，请继续在 AI 澄清中回答下一轮问题')
+    expect(wrapper.get('[data-testid="header-generate-prd"]').attributes('disabled')).toBeDefined()
+    expect(wrapper.text()).not.toContain('项目概览')
+  })
+
+  it('keeps the same requirement completeness model on the requirements page', async () => {
+    const repository = createRepository()
+    const { wrapper } = await mountWorkspace(
+      repository,
+      `/projects/${project.id}/requirements`,
+      roundCompletedStateStore(),
+    )
+
+    expect(wrapper.text()).toContain('需求结果')
+    expect(wrapper.text()).toContain('需求完整度：60%')
+    expect(wrapper.text()).not.toContain('总体进度')
+  })
+
+  it('shows actionable content in the right panel', async () => {
+    const repository = createRepository()
+    const { wrapper } = await mountWorkspace(repository, `/projects/${project.id}/overview`, pendingStateStore())
+    await wrapper.get('[data-testid="panel-toggle"]').trigger('click')
+
+    expect(wrapper.text()).toContain('待处理事项')
+    expect(wrapper.text()).not.toContain('分析进度、假设、冲突和变更将在此展示')
   })
 })

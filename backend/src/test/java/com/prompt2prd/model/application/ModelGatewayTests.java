@@ -57,6 +57,22 @@ class ModelGatewayTests {
     }
 
     @Test
+    void fakeGatewayReturnsModelListSuccess() {
+        FakeModelGateway gateway = FakeModelGateway.success(
+                new DemoResult("ok", 1),
+                List.of(),
+                new ModelConnectionResult("fixture-model", Duration.ofMillis(12)));
+
+        StepVerifier.create(gateway.listModels(modelListRequest(newSignal())))
+                .assertNext(result -> {
+                    assertThat(result.models()).extracting(AvailableModel::id)
+                            .containsExactly("fixture-model");
+                    assertThat(result.latency()).isEqualTo(Duration.ofMillis(12));
+                })
+                .verifyComplete();
+    }
+
+    @Test
     void fakeGatewayReturnsFormatError() {
         FakeModelGateway gateway = FakeModelGateway.formatError();
 
@@ -142,6 +158,15 @@ class ModelGatewayTests {
 
     private ModelConnectionRequest connectionRequest(ModelCancellationSignal signal) {
         return new ModelConnectionRequest(context(signal));
+    }
+
+    private ModelListRequest modelListRequest(ModelCancellationSignal signal) {
+        ModelEndpoint endpoint = endpoint();
+        return new ModelListRequest(
+                UUID.randomUUID().toString(),
+                endpoint.baseUrl(),
+                endpoint.apiKey(),
+                signal);
     }
 
     private ModelCallContext context(ModelCancellationSignal signal) {

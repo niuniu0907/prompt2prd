@@ -1,10 +1,12 @@
 import { flushPromises, mount } from '@vue/test-utils'
-import { describe, expect, it, vi } from 'vitest'
+import { createMemoryHistory } from 'vue-router'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import AppShell from './AppShell.vue'
 import type { ProjectHomeRepository } from '@/db/repositories/projectRepository'
 import ProjectHomeView from '@/views/ProjectHomeView.vue'
 import tokensCss from '@/styles/tokens.css?inline'
+import { createAppRouter } from '@/router'
 
 const requiredTokens = {
   '--color-primary': '#c7eb64',
@@ -18,6 +20,12 @@ const requiredTokens = {
 }
 
 describe('AppShell', () => {
+  afterEach(() => {
+    window.localStorage.removeItem('prompt2prd:layout:appSidebarWidth')
+    document.body.style.cursor = ''
+    document.body.style.userSelect = ''
+  })
+
   it('shows every global navigation entry with a single current item', () => {
     const wrapper = mount(AppShell, {
       slots: {
@@ -40,7 +48,36 @@ describe('AppShell', () => {
     expect(wrapper.findAll('[aria-current="page"]')).toHaveLength(1)
     await wrapper.get('[data-navigation="DELETED"]').trigger('click')
     expect(wrapper.emitted('navigate')).toEqual([['DELETED']])
-    expect(wrapper.get('button[disabled]').text()).toContain('模型设置')
+    expect(wrapper.get('[data-navigation="MODEL_SETTINGS"]').attributes('disabled')).toBeUndefined()
+  })
+
+  it('opens the enabled model settings route', async () => {
+    const router = createAppRouter(createMemoryHistory())
+    await router.push('/')
+    await router.isReady()
+    const wrapper = mount(AppShell, { global: { plugins: [router] } })
+
+    await wrapper.get('[data-navigation="MODEL_SETTINGS"]').trigger('click')
+    await flushPromises()
+
+    expect(router.currentRoute.value.name).toBe('model-settings')
+  })
+
+  it('lets users resize the global sidebar and keeps the width locally', async () => {
+    const wrapper = mount(AppShell, {
+      slots: {
+        default: '<div>main canvas</div>',
+      },
+    })
+    const resizer = wrapper.get('[data-testid="app-sidebar-resizer"]').element
+
+    resizer.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, clientX: 244 }))
+    window.dispatchEvent(new MouseEvent('mousemove', { clientX: 300 }))
+    window.dispatchEvent(new MouseEvent('mouseup'))
+    await wrapper.vm.$nextTick()
+
+    expect((wrapper.get('.app-shell').element as HTMLElement).style.gridTemplateColumns).toContain('300px')
+    expect(window.localStorage.getItem('prompt2prd:layout:appSidebarWidth')).toBe('300')
   })
 
   it('uses the documented light-theme tokens and primary-button pairing', () => {
@@ -52,6 +89,9 @@ describe('AppShell', () => {
   })
 
   it('renders a real empty state without sample projects', async () => {
+    const router = createAppRouter(createMemoryHistory())
+    await router.push('/')
+    await router.isReady()
     const repository: ProjectHomeRepository = {
       listSummaries: vi.fn(async () => []),
       rename: vi.fn(async () => undefined),
@@ -63,6 +103,7 @@ describe('AppShell', () => {
     }
     const wrapper = mount(ProjectHomeView, {
       props: { repository },
+      global: { plugins: [router] },
     })
     await flushPromises()
 

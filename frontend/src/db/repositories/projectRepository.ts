@@ -1,4 +1,5 @@
 import type { PrdSection } from '@/features/prd/types'
+import type { FlowchartRecord } from '@/features/flowchart/types'
 import {
   assertUtcIsoDateTime,
   assertUuid,
@@ -50,6 +51,10 @@ export interface ProjectLookupRepository {
   getById(projectId: string): Promise<Project | undefined>
 }
 
+export interface ProjectSourceRepository {
+  updateOriginalPrompt(projectId: string, originalPrompt: string, now?: string): Promise<Project>
+}
+
 export class ProjectNotFoundError extends Error {
   constructor(projectId: string) {
     super(`Project ${projectId} was not found`)
@@ -76,10 +81,11 @@ interface CopyMaps {
   version: IdMap
   change: IdMap
   section: IdMap
+  flowchart: IdMap
 }
 
 export class ProjectRepository
-  implements ProjectHomeRepository, ProjectCreateRepository, ProjectLookupRepository
+  implements ProjectHomeRepository, ProjectCreateRepository, ProjectLookupRepository, ProjectSourceRepository
 {
   constructor(
     private readonly database: AppDatabase = appDatabase,
@@ -168,6 +174,23 @@ export class ProjectRepository
     }))
   }
 
+  async updateOriginalPrompt(
+    projectId: string,
+    originalPrompt: string,
+    now = new Date().toISOString(),
+  ): Promise<Project> {
+    const normalizedPrompt = originalPrompt.trim()
+    if (Array.from(normalizedPrompt).length < 5) {
+      throw new TypeError('original prompt must contain at least 5 Unicode characters')
+    }
+
+    return this.updateProject(projectId, now, (project) => ({
+      ...project,
+      originalPrompt,
+      updatedAt: now,
+    }))
+  }
+
   async archive(projectId: string, now = new Date().toISOString()): Promise<Project> {
     return this.updateProject(projectId, now, (project) => ({
       ...project,
@@ -214,10 +237,11 @@ export class ProjectRepository
         this.database.requirement_version,
         this.database.requirement_change,
         this.database.prd_section,
+        this.database.flowchart,
       ],
       async () => {
         const sourceProject = await this.requireProject(projectId)
-        const [requirements, questions, answers, conflicts, versions, changes, sections] =
+        const [requirements, questions, answers, conflicts, versions, changes, sections, flowcharts] =
           await Promise.all([
             this.database.requirement_item.where('projectId').equals(projectId).toArray(),
             this.database.clarification_question.where('projectId').equals(projectId).toArray(),
@@ -226,10 +250,11 @@ export class ProjectRepository
             this.database.requirement_version.where('projectId').equals(projectId).toArray(),
             this.database.requirement_change.where('projectId').equals(projectId).toArray(),
             this.database.prd_section.where('projectId').equals(projectId).toArray(),
+            this.database.flowchart.where('projectId').equals(projectId).toArray(),
           ])
 
         const maps = this.createCopyMaps()
-        this.allocateGraphIds(maps, requirements, questions, answers, conflicts, versions, changes, sections)
+        this.allocateGraphIds(maps, requirements, questions, answers, conflicts, versions, changes, sections, flowcharts)
 
         const copiedProject: Project = {
           ...structuredClone(sourceProject),
@@ -276,6 +301,9 @@ export class ProjectRepository
           createdAt: now,
           updatedAt: now,
         }))
+        const copiedFlowcharts = flowcharts.map((flowchart) =>
+          this.copyFlowchart(flowchart, copiedProject.id, maps, now),
+        )
 
         await this.database.project.add(copiedProject)
         await this.bulkAdd(this.database.requirement_item, copiedRequirements)
@@ -285,6 +313,7 @@ export class ProjectRepository
         await this.bulkAdd(this.database.requirement_version, copiedVersions)
         await this.bulkAdd(this.database.requirement_change, copiedChanges)
         await this.bulkAdd(this.database.prd_section, copiedSections)
+        await this.bulkAdd(this.database.flowchart, copiedFlowcharts)
 
         return copiedProject
       },
@@ -305,6 +334,7 @@ export class ProjectRepository
         this.database.requirement_version,
         this.database.requirement_change,
         this.database.prd_section,
+        this.database.flowchart,
       ],
       async () => {
         const project = await this.requireProject(projectId)
@@ -320,6 +350,7 @@ export class ProjectRepository
           this.database.requirement_version.where('projectId').equals(projectId).delete(),
           this.database.requirement_change.where('projectId').equals(projectId).delete(),
           this.database.prd_section.where('projectId').equals(projectId).delete(),
+          this.database.flowchart.where('projectId').equals(projectId).delete(),
         ])
         await this.database.project.delete(projectId)
       },
@@ -361,6 +392,7 @@ export class ProjectRepository
       version: new Map(),
       change: new Map(),
       section: new Map(),
+      flowchart: new Map(),
     }
   }
 
@@ -373,6 +405,7 @@ export class ProjectRepository
     versions: RequirementVersion[],
     changes: RequirementChange[],
     sections: PrdSection[],
+    flowcharts: FlowchartRecord[],
   ): void {
     for (const item of requirements) this.allocate(maps.requirement, item.id)
     for (const question of questions) this.allocateQuestion(maps, question)
@@ -384,9 +417,11 @@ export class ProjectRepository
       for (const question of version.snapshot.questions) this.allocateQuestion(maps, question)
       for (const answer of version.snapshot.answers) this.allocate(maps.answer, answer.id)
       for (const conflict of version.snapshot.conflicts) this.allocate(maps.conflict, conflict.id)
+      for (const flowchart of version.snapshot.flowcharts ?? []) this.allocate(maps.flowchart, flowchart.id)
     }
     for (const change of changes) this.allocate(maps.change, change.id)
     for (const section of sections) this.allocate(maps.section, section.id)
+    for (const flowchart of flowcharts) this.allocate(maps.flowchart, flowchart.id)
   }
 
   private allocateQuestion(maps: CopyMaps, question: ClarificationQuestion): void {
@@ -426,6 +461,7 @@ export class ProjectRepository
       maps.version.get(sourceId) ??
       maps.change.get(sourceId) ??
       maps.section.get(sourceId) ??
+      maps.flowchart.get(sourceId) ??
       maps.option.get(sourceId) ??
       sourceId
     )
@@ -502,6 +538,24 @@ export class ProjectRepository
     }
   }
 
+  private copyFlowchart(
+    flowchart: FlowchartRecord,
+    projectId: string,
+    maps: CopyMaps,
+    now: string,
+  ): FlowchartRecord {
+    return {
+      ...structuredClone(flowchart),
+      id: this.mappedId(maps.flowchart, flowchart.id),
+      projectId,
+      sourceRequirementIds: flowchart.sourceRequirementIds.map((id) =>
+        this.mappedId(maps.requirement, id),
+      ),
+      createdAt: now,
+      updatedAt: now,
+    }
+  }
+
   private copySnapshot(
     snapshot: RequirementStateSnapshot,
     project: Project,
@@ -519,6 +573,9 @@ export class ProjectRepository
       answers: snapshot.answers.map((answer) => this.copyAnswer(answer, project.id, maps, now)),
       conflicts: snapshot.conflicts.map((conflict) =>
         this.copyConflict(conflict, project.id, maps, now),
+      ),
+      flowcharts: (snapshot.flowcharts ?? []).map((flowchart) =>
+        this.copyFlowchart(flowchart, project.id, maps, now),
       ),
     }
   }

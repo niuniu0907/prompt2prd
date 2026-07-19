@@ -511,4 +511,33 @@ describe('VersionRepository', () => {
     expect(requirements).toHaveLength(1)
     expect(requirements[0]!.title).toBe('登录功能')
   })
+
+  it('restores flowcharts captured after the schema version 2 milestone', async () => {
+    const { database, requirementRepo, versionRepo } = createTestContext()
+    const project = await seedProject(database)
+    const requirement = createRequirementItem({
+      id: uuid(70), projectId: project.id, type: 'USER_STORY', title: '提交申请',
+      content: '用户提交申请后进入审核', status: 'CONFIRMED', sourceType: 'USER_ANSWER',
+      sourceId: null, now: baseTime,
+    })
+    await database.flowchart.add({
+      id: uuid(71), projectId: project.id, key: 'main', type: 'MAIN', title: '主流程 V1',
+      mermaid: 'flowchart TD\nA-->B', status: 'VALID', sourceRequirementIds: [requirement.id],
+      createdAt: baseTime, updatedAt: baseTime,
+    })
+    const { version: v1 } = await seedVersion(requirementRepo, project.id, [requirement], '流程图 V1', laterTime(5))
+
+    await database.flowchart.where('projectId').equals(project.id).delete()
+    await database.flowchart.add({
+      id: uuid(72), projectId: project.id, key: 'main', type: 'MAIN', title: '主流程 V2',
+      mermaid: 'flowchart TD\nA-->C', status: 'VALID', sourceRequirementIds: [requirement.id],
+      createdAt: laterTime(10), updatedAt: laterTime(10),
+    })
+    await seedVersion(requirementRepo, project.id, [requirement], '流程图 V2', laterTime(15))
+
+    await versionRepo.restore(project.id, v1.id, laterTime(20))
+    const restored = await database.flowchart.where('projectId').equals(project.id).toArray()
+    expect(restored).toHaveLength(1)
+    expect(restored[0]).toMatchObject({ title: '主流程 V1', mermaid: 'flowchart TD\nA-->B' })
+  })
 })

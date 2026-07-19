@@ -30,6 +30,16 @@ afterEach(() => {
 })
 
 describe('ProjectCard', () => {
+  it('opens the project when the card body is activated', async () => {
+    const wrapper = mount(ProjectCard, { props: { summary, view: 'ACTIVE' } })
+
+    await wrapper.get('h3').trigger('click')
+    expect(wrapper.emitted('open')).toEqual([[summary.project.id]])
+
+    await wrapper.get('article').trigger('keydown', { key: 'Enter' })
+    expect(wrapper.emitted('open')).toEqual([[summary.project.id], [summary.project.id]])
+  })
+
   it('shows project metadata and keeps active actions inside a menu', async () => {
     const wrapper = mount(ProjectCard, { props: { summary, view: 'ACTIVE' } })
 
@@ -46,6 +56,7 @@ describe('ProjectCard', () => {
     expect(menu.text()).toContain('移入回收站')
 
     await menu.find('[data-action="rename"]').trigger('click')
+    expect(wrapper.emitted('open')).toBeUndefined()
     await wrapper.get('input').setValue('新的项目名称')
     await wrapper.get('form').trigger('submit')
     expect(wrapper.emitted('rename')).toEqual([[summary.project.id, '新的项目名称']])

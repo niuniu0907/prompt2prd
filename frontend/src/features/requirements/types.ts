@@ -1,10 +1,14 @@
 import type { Project, UtcIsoDateTime, Uuid } from '@/features/projects/types'
 import { assertUtcIsoDateTime, assertUuid } from '@/features/projects/types'
+import type { FlowchartRecord } from '@/features/flowchart/types'
 
 export const REQUIREMENT_STATUSES = [
+  'UNANALYZED',
   'INFERRED',
   'PENDING',
   'CONFIRMED',
+  'SKIPPED',
+  'NOT_APPLICABLE',
   'CONFLICTED',
 ] as const
 export type RequirementStatus = (typeof REQUIREMENT_STATUSES)[number]
@@ -23,7 +27,9 @@ export const REQUIREMENT_TYPES = [
   'API',
   'IMPLEMENTATION_PHASE',
   'CODING_AGENT_CONSTRAINT',
+  'NON_FUNCTIONAL_REQUIREMENT',
   'ASSUMPTION',
+  'RISK_OPEN_ITEM',
   'MISSING_INFORMATION',
 ] as const
 export type RequirementType = (typeof REQUIREMENT_TYPES)[number]
@@ -68,7 +74,16 @@ export interface CreateRequirementItemInput {
   now?: UtcIsoDateTime
 }
 
-export const QUESTION_INPUT_TYPES = ['SINGLE_SELECT', 'MULTI_SELECT', 'TEXT', 'CONFIRMATION'] as const
+export const QUESTION_INPUT_TYPES = [
+  'SINGLE_SELECT',
+  'MULTI_SELECT',
+  'CUSTOM_TEXT',
+  'SINGLE_SELECT_CUSTOM',
+  'MULTI_SELECT_CUSTOM',
+  'TEXT',
+  'CONFIRMATION',
+  'AI_RECOMMENDED',
+] as const
 export type QuestionInputType = (typeof QUESTION_INPUT_TYPES)[number]
 export type ClarificationQuestionStatus = 'PENDING' | 'ANSWERED' | 'SKIPPED'
 
@@ -83,6 +98,7 @@ export interface ClarificationQuestion {
   id: Uuid
   projectId: Uuid
   batchId: Uuid
+  roundNo: number
   text: string
   reason: string
   dimension: string
@@ -90,6 +106,7 @@ export interface ClarificationQuestion {
   semanticKey: string
   inputType: QuestionInputType
   options: ClarificationOption[]
+  coverageCategories: string[]
   priority: number
   status: ClarificationQuestionStatus
   createdAt: UtcIsoDateTime
@@ -106,6 +123,21 @@ export interface ClarificationAnswer {
   skipped: boolean
   createdAt: UtcIsoDateTime
   updatedAt: UtcIsoDateTime
+}
+
+export type ClarificationRoundStatus = 'ACTIVE' | 'READY' | 'GENERATING' | 'STALE'
+
+export interface ClarificationRound {
+  id: Uuid
+  projectId: Uuid
+  roundNo: number
+  requestId: string
+  contextVersion: string
+  questionIds: Uuid[]
+  coverageCategories: string[]
+  status: ClarificationRoundStatus
+  createdAt: UtcIsoDateTime
+  generatedAt: UtcIsoDateTime
 }
 
 export type ConflictStatus = 'OPEN' | 'RESOLVED'
@@ -146,6 +178,8 @@ export interface RequirementStateSnapshot {
   questions: ClarificationQuestion[]
   answers: ClarificationAnswer[]
   conflicts: RequirementConflict[]
+  /** Optional only for snapshots created before IndexedDB schema version 2. */
+  flowcharts?: FlowchartRecord[]
 }
 
 export interface RequirementVersion {

@@ -20,6 +20,7 @@ final class FakeModelGateway implements ModelGateway {
     private final Object structuredValue;
     private final List<String> textChunks;
     private final ModelConnectionResult connectionResult;
+    private final ModelListResult modelListResult;
     private final Duration delay;
 
     private FakeModelGateway(
@@ -27,11 +28,13 @@ final class FakeModelGateway implements ModelGateway {
             Object structuredValue,
             List<String> textChunks,
             ModelConnectionResult connectionResult,
+            ModelListResult modelListResult,
             Duration delay) {
         this.scenario = Objects.requireNonNull(scenario, "scenario");
         this.structuredValue = structuredValue;
         this.textChunks = List.copyOf(textChunks);
         this.connectionResult = Objects.requireNonNull(connectionResult, "connectionResult");
+        this.modelListResult = Objects.requireNonNull(modelListResult, "modelListResult");
         this.delay = Objects.requireNonNull(delay, "delay");
     }
 
@@ -44,6 +47,8 @@ final class FakeModelGateway implements ModelGateway {
                 structuredValue,
                 textChunks,
                 connectionResult,
+                new ModelListResult(List.of(new AvailableModel(connectionResult.model(), connectionResult.model())),
+                        connectionResult.latency()),
                 Duration.ZERO);
     }
 
@@ -53,6 +58,7 @@ final class FakeModelGateway implements ModelGateway {
                 null,
                 List.of(),
                 new ModelConnectionResult("fixture-model", Duration.ZERO),
+                new ModelListResult(List.of(), Duration.ZERO),
                 Duration.ZERO);
     }
 
@@ -66,6 +72,8 @@ final class FakeModelGateway implements ModelGateway {
                 structuredValue,
                 textChunks,
                 connectionResult,
+                new ModelListResult(List.of(new AvailableModel(connectionResult.model(), connectionResult.model())),
+                        connectionResult.latency()),
                 delay);
     }
 
@@ -75,6 +83,7 @@ final class FakeModelGateway implements ModelGateway {
                 null,
                 List.of(),
                 new ModelConnectionResult("fixture-model", Duration.ZERO),
+                new ModelListResult(List.of(), Duration.ZERO),
                 Duration.ZERO);
     }
 
@@ -140,6 +149,23 @@ final class FakeModelGateway implements ModelGateway {
             return raceCancellation(
                     delayIfNeeded(Mono.just(connectionResult)),
                     request.context().cancellation());
+        });
+    }
+
+    @Override
+    public Mono<ModelListResult> listModels(ModelListRequest request) {
+        return Mono.defer(() -> {
+            if (scenario == Scenario.CANCELLED || request.cancellation().isCancelled()) {
+                return Mono.error(cancelledException());
+            }
+            if (scenario == Scenario.FORMAT_ERROR) {
+                return Mono.error(new ModelGatewayException(
+                        ModelGatewayException.Kind.FORMAT_INCOMPATIBLE,
+                        "Fake model list response is incompatible"));
+            }
+            return raceCancellation(
+                    delayIfNeeded(Mono.just(modelListResult)),
+                    request.cancellation());
         });
     }
 

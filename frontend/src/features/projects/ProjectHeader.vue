@@ -9,31 +9,22 @@ const props = withDefaults(
     stage?: ProjectStage
     modelName?: string
     saveStatus?: string
+    canGeneratePrd?: boolean
+    generateHint?: string
   }>(),
   {
     completeness: 0,
     stage: 'CLARIFYING',
     modelName: undefined,
     saveStatus: undefined,
+    canGeneratePrd: false,
+    generateHint: '首次 AI 解析完成后会进入 AI 澄清。',
   },
 )
 
 const emit = defineEmits<{
   generatePrd: []
 }>()
-
-const stageLabel = computed(() => {
-  const map: Record<ProjectStage, string> = {
-    CLARIFYING: '需求澄清',
-    ARCHITECTURE: '架构建议',
-    FLOWCHART: '流程图',
-    PRD: 'PRD 生成',
-    COMPLETED: '已完成',
-  }
-  return map[props.stage] ?? props.stage
-})
-
-const completenessPercent = computed(() => `${Math.round(props.completeness)}%`)
 
 const showSaveStatus = computed(() => Boolean(props.saveStatus))
 </script>
@@ -43,9 +34,8 @@ const showSaveStatus = computed(() => Boolean(props.saveStatus))
     <div class="project-header__left">
       <h1 class="project-header__name">{{ projectName }}</h1>
       <div class="project-header__meta">
-        <span class="project-header__stage">{{ stageLabel }}</span>
-        <span class="project-header__completeness" data-testid="header-completeness">
-          {{ completenessPercent }}
+        <span class="project-header__completeness">
+          需求完整度：<b>{{ completeness }}%</b>
         </span>
         <span v-if="modelName" class="project-header__model">{{ modelName }}</span>
       </div>
@@ -64,10 +54,18 @@ const showSaveStatus = computed(() => Boolean(props.saveStatus))
         class="button-primary project-header__generate"
         type="button"
         data-testid="header-generate-prd"
+        :disabled="!canGeneratePrd"
+        :title="canGeneratePrd ? '进入 PRD 页面生成当前版本文档' : generateHint"
         @click="emit('generatePrd')"
       >
         生成 PRD
       </button>
+      <span
+        class="project-header__generate-hint"
+        data-testid="header-generate-hint"
+      >
+        {{ generateHint }}
+      </span>
     </div>
   </header>
 </template>
@@ -105,25 +103,25 @@ const showSaveStatus = computed(() => Boolean(props.saveStatus))
   display: flex;
   align-items: center;
   gap: 8px;
+  min-width: 0;
+  flex-wrap: wrap;
 }
 
-.project-header__stage,
-.project-header__completeness,
-.project-header__model {
+.project-header__model,
+.project-header__completeness {
   font-size: 11px;
   font-weight: 600;
   padding: 3px 9px;
   border-radius: 6px;
 }
 
-.project-header__stage {
-  color: var(--color-on-accent);
-  background: var(--color-accent);
-}
-
 .project-header__completeness {
   color: var(--color-text-primary);
-  background: var(--color-primary);
+  background: #effbd4;
+}
+
+.project-header__completeness b {
+  font-weight: 760;
 }
 
 .project-header__model {
@@ -136,6 +134,9 @@ const showSaveStatus = computed(() => Boolean(props.saveStatus))
   align-items: center;
   gap: 12px;
   flex-shrink: 0;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  max-width: 360px;
 }
 
 .project-header__save-status {
@@ -149,5 +150,19 @@ const showSaveStatus = computed(() => Boolean(props.saveStatus))
   font-size: 13px;
   padding: 0 16px;
   border-radius: 9px;
+}
+
+.project-header__generate:disabled {
+  color: var(--color-text-muted);
+  background: var(--color-surface-muted);
+  cursor: not-allowed;
+  box-shadow: none;
+}
+
+.project-header__generate-hint {
+  flex-basis: 100%;
+  color: var(--color-text-secondary);
+  font-size: 11px;
+  text-align: right;
 }
 </style>
