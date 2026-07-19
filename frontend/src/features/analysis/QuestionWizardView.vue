@@ -168,12 +168,10 @@ async function submit(drafts: QuestionAnswerDraft[]) {
       originalInput: originalProjectInput(localState),
       missingInformation: localState.requirements.filter(item => item.type === 'MISSING_INFORMATION').map(item => item.content),
       modelSettings: settings,
-    }).then(finalState => {
-      state.value = stateStore.saveFinal(projectId.value, finalState).then(saved => {
-        state.value = saved
-        notifyAnalysisStateSaved()
-        return saved
-      }) as unknown as AnalysisState
+    }).then(async (finalState) => {
+      const saved = await stateStore.saveFinal(projectId.value, finalState)
+      state.value = saved
+      notifyAnalysisStateSaved()
     }).catch(error => {
       console.warn('Background answer processing failed:', error)
       // Don't show error - answers are already saved locally
