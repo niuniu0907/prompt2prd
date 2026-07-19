@@ -133,9 +133,11 @@ public class AnalysisController {
                             targetKeys, requestId))
                     .doOnCancel(cancellation::cancel)
                     .onErrorResume(error -> {
-                        log.warn("Round generation failed: {}", error.getMessage());
+                        log.warn("Round generation failed requestId={} errorType={}",
+                                requestId, error.getClass().getSimpleName(), error);
                         return Mono.just(GenerateRoundResponse.error(
-                                "GENERATION_FAILED", error.getMessage()));
+                                "GENERATION_FAILED",
+                                "Round generation failed. Retry or check the model service status. (requestId: " + requestId + ")"));
                     });
         });
     }
