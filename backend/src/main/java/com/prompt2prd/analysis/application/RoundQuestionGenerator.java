@@ -13,6 +13,7 @@ import com.prompt2prd.model.application.StructuredModelRequest;
 import com.prompt2prd.model.application.StructuredModelResult;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 import reactor.core.publisher.Mono;
 
@@ -87,6 +88,7 @@ public final class RoundQuestionGenerator {
     private final ModelGateway modelGateway;
     private final Supplier<UUID> idGenerator;
 
+    @Autowired
     public RoundQuestionGenerator(ModelGateway modelGateway) {
         this(modelGateway, UUID::randomUUID);
     }

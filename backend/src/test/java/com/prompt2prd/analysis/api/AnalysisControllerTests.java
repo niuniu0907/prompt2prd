@@ -1,6 +1,7 @@
 package com.prompt2prd.analysis.api;
 
 import com.prompt2prd.analysis.application.AnalysisOrchestrator;
+import com.prompt2prd.analysis.application.RoundQuestionGenerator;
 import com.prompt2prd.analysis.domain.CompletenessScore;
 import com.prompt2prd.analysis.domain.ProjectStage;
 import com.prompt2prd.analysis.domain.ProjectSummary;
@@ -43,11 +44,12 @@ class AnalysisControllerTests {
         ModelProperties properties = mock(ModelProperties.class);
         when(properties.resolve(ModelConfig.KeySource.USER, "user-key"))
                 .thenReturn(ModelConfig.user("user-key"));
+        RoundQuestionGenerator roundQuestionGenerator = mock(RoundQuestionGenerator.class);
         QuotaService quotaService = mock(QuotaService.class);
         ClientIpDigest digest = mock(ClientIpDigest.class);
         when(digest.from(any())).thenReturn("a".repeat(64));
         AnalysisController controller = new AnalysisController(
-                orchestrator, properties, quotaService, digest);
+                orchestrator, roundQuestionGenerator, properties, quotaService, digest);
         WebTestClient client = WebTestClient.bindToController(controller).build();
         AnalysisModelSettings settings = new AnalysisModelSettings(
                 ModelConfig.KeySource.USER, AnalysisModelSettings.Provider.CUSTOM,
@@ -96,11 +98,12 @@ class AnalysisControllerTests {
         ModelProperties properties = mock(ModelProperties.class);
         when(properties.resolve(ModelConfig.KeySource.USER, "user-key"))
                 .thenReturn(ModelConfig.user("user-key"));
+        RoundQuestionGenerator roundQuestionGenerator = mock(RoundQuestionGenerator.class);
         QuotaService quotaService = mock(QuotaService.class);
         ClientIpDigest digest = mock(ClientIpDigest.class);
         when(digest.from(any())).thenReturn("a".repeat(64));
         AnalysisController controller = new AnalysisController(
-                orchestrator, properties, quotaService, digest);
+                orchestrator, roundQuestionGenerator, properties, quotaService, digest);
         JacksonConfiguration jacksonConfiguration = new JacksonConfiguration();
         WebTestClient client = WebTestClient.bindToController(controller)
                 .httpMessageCodecs(jacksonConfiguration::configureHttpMessageCodecs)
