@@ -66,13 +66,25 @@ export const useModelConfigStore = defineStore('model-config', () => {
 
   normalizeProviderConfiguration()
 
-  watch(userApiKey, (apiKey) => {
+  watch(userApiKey, async (apiKey) => {
     lastKeyError.value = null
     connected.value = false
     if (apiKey.trim()) {
       sessionStorage.setItem(SESSION_KEY, apiKey)
     } else {
       sessionStorage.removeItem(SESSION_KEY)
+    }
+    // Sync to IndexedDB when remember is enabled
+    if (rememberApiKey.value) {
+      if (apiKey.trim()) {
+        await appDatabase.app_setting.put({
+          key: REMEMBERED_KEY,
+          value: { apiKey },
+          updatedAt: new Date().toISOString(),
+        })
+      } else {
+        await appDatabase.app_setting.delete(REMEMBERED_KEY)
+      }
     }
   }, { flush: 'sync' })
 

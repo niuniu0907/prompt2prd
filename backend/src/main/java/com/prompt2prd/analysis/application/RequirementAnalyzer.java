@@ -323,7 +323,7 @@ public final class RequirementAnalyzer implements AnalysisEngine {
             Instant now,
             String language) {
         ClarificationQuestion question = new ClarificationQuestion(
-                idGenerator.get(), current.project().id(), batchId, 0,
+                idGenerator.get(), current.project().id(), batchId, 1,
                 fallbackQuestionText(area, language),
                 fallbackQuestionReason(area, language),
                 area.dimension(), area.key() + ".fallback",
@@ -423,7 +423,7 @@ public final class RequirementAnalyzer implements AnalysisEngine {
             }
         }
         ClarificationQuestion question = new ClarificationQuestion(
-                idGenerator.get(), current.project().id(), batchId, 0,
+                idGenerator.get(), current.project().id(), batchId, 1,
                 raw.text(), raw.reason(), dimension, raw.targetField(), raw.semanticKey(),
                 inputType, options, safeCoverageCategories(raw), 0, QuestionStatus.PENDING, now, now);
         return new com.prompt2prd.analysis.domain.QuestionCandidate(

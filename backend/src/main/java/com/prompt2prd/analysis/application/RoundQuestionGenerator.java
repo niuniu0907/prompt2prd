@@ -167,6 +167,13 @@ public final class RoundQuestionGenerator {
                                     idGenerator.get(), opt.label(), opt.impact(), opt.recommended()))
                             .toList();
 
+                    double priority = raw.businessImpact() * 0.35
+                            + raw.informationGap() * 0.30
+                            + raw.risk() * 0.20
+                            + raw.dependencyCount() * 0.15;
+                    // Clamp to [0, 5] per domain constraint
+                    priority = Math.max(0.0, Math.min(5.0, priority));
+
                     return new ClarificationQuestion(
                             idGenerator.get(),
                             projectId,
@@ -180,7 +187,7 @@ public final class RoundQuestionGenerator {
                             inputType,
                             options,
                             coverageCategories,
-                            0,
+                            priority,
                             QuestionStatus.PENDING,
                             now,
                             now);

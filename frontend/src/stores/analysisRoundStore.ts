@@ -194,7 +194,8 @@ export const useAnalysisRoundStore = defineStore('analysisRound', () => {
 
     const byRound = new Map<number, ClarificationQuestion[]>()
     for (const q of questions) {
-      const rn = q.roundNo ?? 0
+      // Treat roundNo=0 (pre-round-system legacy) as round 1
+      const rn = q.roundNo && q.roundNo > 0 ? q.roundNo : 1
       if (!byRound.has(rn)) byRound.set(rn, [])
       byRound.get(rn)!.push(q)
     }
