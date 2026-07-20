@@ -7,6 +7,7 @@ import { analysisStateRepository, type AnalysisState, type AnalysisStateStore } 
 import { clarificationRepository, type ClarificationSubmitter, type SubmitBatchResult } from '@/db/repositories/clarificationRepository'
 import { clarificationRoundRepository } from '@/db/repositories/clarificationRoundRepository'
 import { appDatabase } from '@/db/appDatabase'
+import { toPlainData } from '@/db/toPlainData'
 import {
   projectRepository,
   type ProjectSourceRepository,
@@ -22,9 +23,23 @@ import { activeCoverageKeys, prdCoverageAreas } from './prdCoverage'
 
 interface AnswerAnalysisRunner {
   submitAnswers(body: AnalysisAnswersRequestBody, callbacks?: AnalysisCallbacks): Promise<unknown>
-  generateRound(body: GenerateRoundRequestBody, signal?: AbortSignal): Promise<{ success: boolean; questions: unknown[]; coverageCategories: string[]; requestId: string }>
+  generateRound(body: GenerateRoundRequestBody, signal?: AbortSignal): Promise<GenerateRoundResult>
   cancel(): void
 }
+
+interface GenerateRoundResult {
+  success: boolean
+  questions: unknown[]
+  coverageCategories: string[]
+  requestId: string
+  errorCode?: string
+  errorMessage?: string
+}
+
+type NextRoundOutcome =
+  | { type: 'ACTIVATED' }
+  | { type: 'COMPLETED' }
+  | { type: 'FAILED'; message: string }
 
 const props = defineProps<{
   projectId?: string
@@ -120,6 +135,20 @@ onMounted(async () => {
       if (roundStore.currentRoundQuestions.length === 0 && loadedState.questions.length > 0) {
         roundStore.setCurrentRoundQuestions(1, loadedState.questions)
       }
+
+      // Auto-recover: if the current round is complete and a READY next
+      // round exists (e.g. generation succeeded in a previous session but
+      // activateNextRound failed due to DataCloneError), activate it now.
+      const currentCompleted =
+        roundStore.currentRoundQuestions.length > 0 &&
+        roundStore.currentRoundQuestions.every(
+          question =>
+            question.status === 'ANSWERED' ||
+            question.status === 'SKIPPED',
+        )
+      if (roundStore.hasReadyNextRound && currentCompleted) {
+        await roundStore.activateNextRound(projectId.value)
+      }
     }
   }
   catch (error) { errorMessage.value = readableError(error) }
@@ -153,6 +182,21 @@ function cancelAnalysis() {
 
 async function submit(drafts: QuestionAnswerDraft[]) {
   if (!state.value || submitStatus.value !== 'IDLE') return
+
+  // If generation previously failed but answers are already saved, retry
+  // generation only — do NOT re-save the same answers or call submitAnswers again.
+  if (hasGenerationError.value) {
+    const settings = props.modelSettings ?? requestModelSettings()
+    const validation = validateAnalysisModelSettings(settings)
+    if (validation) {
+      errorMessage.value = validation
+      completedMessage.value = ''
+      return
+    }
+    await retryFailedGeneration()
+    return
+  }
+
   const settings = props.modelSettings ?? requestModelSettings()
   const validation = validateAnalysisModelSettings(settings)
   if (validation) {
@@ -168,27 +212,42 @@ async function submit(drafts: QuestionAnswerDraft[]) {
     const persisted = await clarification.submitBatch(projectId.value, drafts)
     const localState = mergePersistedAnswers(state.value, persisted)
     state.value = localState
-    completedMessage.value = '回答已保存'
+
+    // Sync the round store so the UI reflects the updated question statuses
+    // (ANSWERED / SKIPPED) even if the backend round or pre-generation fails.
+    if (persisted.questions.length > 0) {
+      roundStore.setCurrentRoundQuestions(roundStore.currentRoundNo, persisted.questions)
+    }
 
     // 2. Send ONLY current batch answers to backend with SSE progress callbacks
+    completedMessage.value = '回答已保存，AI正在整理'
     submitStatus.value = 'ANALYZING'
     showInfo('AI整理中…')
     analysisStartTime.value = Date.now()
     startAnalysisTimer()
 
-    const finalState = await client.submitAnswers({
-      state: toServerState(localState),
-      answers: toAnswerTurns(persisted.questions, persisted.answers),
-      originalInput: originalProjectInput(localState),
-      missingInformation: localState.requirements.filter(item => item.type === 'MISSING_INFORMATION').map(item => item.content),
-      modelSettings: settings,
-    }, {
-      onEvent: (event) => {
-        if (event.type === 'analysis_progress') {
-          analysisProgressMessage.value = String(event.data.message)
-        }
-      },
-    })
+    let finalState: unknown
+    try {
+      finalState = await client.submitAnswers({
+        state: toServerState(localState),
+        answers: toAnswerTurns(persisted.questions, persisted.answers),
+        originalInput: originalProjectInput(localState),
+        missingInformation: localState.requirements.filter(item => item.type === 'MISSING_INFORMATION').map(item => item.content),
+        modelSettings: settings,
+      }, {
+        onEvent: (event) => {
+          if (event.type === 'analysis_progress') {
+            analysisProgressMessage.value = String(event.data.message)
+          }
+        },
+      })
+    } catch (analysisError) {
+      stopAnalysisTimer()
+      completedMessage.value = ''
+      errorMessage.value = `回答已保存，但AI整理失败：${readableError(analysisError)}`
+      submitStatus.value = 'IDLE'
+      return
+    }
 
     stopAnalysisTimer()
 
@@ -198,32 +257,74 @@ async function submit(drafts: QuestionAnswerDraft[]) {
     await repersistFutureRoundQuestions()
     notifyAnalysisStateSaved()
 
-    // 4. Mark downstream rounds as stale, then trigger pre-generation
+    // 4. If the next round is already READY activate it directly;
+    //    otherwise mark downstream rounds as stale and trigger generation.
+    const nextRoundNo = roundStore.currentRoundNo + 1
+    if (roundStore.readyNextRoundNo === nextRoundNo) {
+      await roundStore.activateNextRound(projectId.value)
+      completedMessage.value = ''
+      submitStatus.value = 'IDLE'
+      return
+    }
+
     await roundStore.markDownstreamStale(roundStore.currentRoundNo)
 
-    completedMessage.value = '回答已保存'
+    completedMessage.value = ''
     submitStatus.value = 'GENERATING_NEXT_ROUND'
     showInfo('正在生成下一轮')
-    void triggerPreGeneration()
+    const outcome = await triggerPreGeneration()
+
+    // Handle generation outcome explicitly — no fire-and-forget
+    switch (outcome.type) {
+      case 'ACTIVATED':
+        // Round activated — UI transitions automatically via store reactivity
+        completedMessage.value = ''
+        submitStatus.value = 'IDLE'
+        break
+      case 'COMPLETED':
+        completedMessage.value = '本轮已完成，没有新的追问，可以查看需求结果或生成PRD。'
+        submitStatus.value = 'IDLE'
+        break
+      case 'FAILED':
+        completedMessage.value = ''
+        errorMessage.value = `回答已保存，但下一轮生成失败：${outcome.message}`
+        submitStatus.value = 'IDLE'
+        break
+    }
   } catch (error) {
     stopAnalysisTimer()
+    completedMessage.value = ''
     errorMessage.value = readableError(error)
     submitStatus.value = 'IDLE'
   }
 }
 
-/** Triggers background pre-generation of the next round (N+1). */
-async function triggerPreGeneration() {
+/**
+ * Triggers pre-generation of the next round (N+1).
+ *
+ * Returns an explicit outcome so callers never fire-and-forget.
+ */
+async function triggerPreGeneration(): Promise<NextRoundOutcome> {
   if (!state.value) {
-    if (submitStatus.value === 'GENERATING_NEXT_ROUND') submitStatus.value = 'IDLE'
-    return
+    return { type: 'FAILED', message: '项目状态丢失，请刷新页面后重试' }
   }
   const nextRoundNo = roundStore.currentRoundNo + 1
+
+  // If the next round is already READY (e.g. generation succeeded but
+  // activateNextRound failed due to DataCloneError), activate it directly
+  // rather than re-generating — otherwise shouldStartGeneration returns
+  // false and the page is stuck on the current round forever.
+  if (roundStore.readyNextRoundNo === nextRoundNo) {
+    await roundStore.activateNextRound(projectId.value)
+    completedMessage.value = ''
+    submitStatus.value = 'IDLE'
+    return { type: 'ACTIVATED' }
+  }
+
   const requestId = crypto.randomUUID()
 
   if (!roundStore.shouldStartGeneration(nextRoundNo, requestId)) {
-    if (submitStatus.value === 'GENERATING_NEXT_ROUND') submitStatus.value = 'IDLE'
-    return
+    return { type: 'FAILED', message: '已有相同的生成请求在处理中' }
   }
 
   roundStore.startGeneration(nextRoundNo, requestId)
@@ -285,13 +386,27 @@ async function triggerPreGeneration() {
 
       // Auto-activate the freshly generated round so the user sees it immediately
       await roundStore.activateNextRound(projectId.value)
+      return { type: 'ACTIVATED' }
     }
+
+    if (result.success) {
+      // AI determined no more clarification is needed: mark as complete
+      // so the UI transitions to the completion / generate-PRD state.
+      roundStore.completeGeneration(nextRoundNo, [], requestId)
+      await roundStore.persist(projectId.value)
+      await roundStore.activateNextRound(projectId.value)
+      return { type: 'COMPLETED' }
+    }
+
+    // result.success === false — backend returned a controlled error
+    const failureMessage = result.errorMessage || '下一轮问题生成失败'
+    roundStore.markGenerationFailed(nextRoundNo, failureMessage)
+    return { type: 'FAILED', message: failureMessage }
   } catch (error) {
-    roundStore.markGenerationFailed(nextRoundNo,
-      error instanceof Error ? error.message : 'Generation failed')
-    console.warn('Background round pre-generation failed for round', nextRoundNo, error)
-  } finally {
-    if (submitStatus.value === 'GENERATING_NEXT_ROUND') submitStatus.value = 'IDLE'
+    const message = error instanceof Error ? error.message : '下一轮问题生成失败'
+    roundStore.markGenerationFailed(nextRoundNo, message)
+    console.warn('Round pre-generation failed for round', nextRoundNo, error)
+    return { type: 'FAILED', message }
   }
 }
 
@@ -336,12 +451,42 @@ async function submitSupplement() {
 
     supplementalIdea.value = ''
     supplementOpen.value = false
-    completedMessage.value = 'AI 已根据补充想法更新需求。'
+
+    // If the next round is already READY, activate directly.
+    const nextRoundNo2 = roundStore.currentRoundNo + 1
+    if (roundStore.readyNextRoundNo === nextRoundNo2) {
+      await roundStore.activateNextRound(projectId.value)
+      completedMessage.value = ''
+      submitStatus.value = 'IDLE'
+      return
+    }
 
     await roundStore.markDownstreamStale(roundStore.currentRoundNo)
+    completedMessage.value = ''
     submitStatus.value = 'GENERATING_NEXT_ROUND'
-    void triggerPreGeneration()
-  } catch (error) { stopAnalysisTimer(); errorMessage.value = readableError(error); submitStatus.value = 'IDLE' }
+    const outcome = await triggerPreGeneration()
+
+    switch (outcome.type) {
+      case 'ACTIVATED':
+        completedMessage.value = ''
+        submitStatus.value = 'IDLE'
+        break
+      case 'COMPLETED':
+        completedMessage.value = '本轮已完成，没有新的追问，可以查看需求结果或生成PRD。'
+        submitStatus.value = 'IDLE'
+        break
+      case 'FAILED':
+        completedMessage.value = ''
+        errorMessage.value = `AI已根据补充想法更新需求，但下一轮生成失败：${outcome.message}`
+        submitStatus.value = 'IDLE'
+        break
+    }
+  } catch (error) {
+    stopAnalysisTimer()
+    completedMessage.value = ''
+    errorMessage.value = readableError(error)
+    submitStatus.value = 'IDLE'
+  }
 }
 
 async function retrySavedAnswers() {
@@ -375,20 +520,78 @@ async function retrySavedAnswers() {
     state.value = savedState
     await repersistFutureRoundQuestions()
     notifyAnalysisStateSaved()
+    // If the next round is already READY, activate directly.
+    const nextRoundNo3 = roundStore.currentRoundNo + 1
+    if (roundStore.readyNextRoundNo === nextRoundNo3) {
+      await roundStore.activateNextRound(projectId.value)
+      completedMessage.value = ''
+      submitStatus.value = 'IDLE'
+      return
+    }
+
     await roundStore.markDownstreamStale(roundStore.currentRoundNo)
-    completedMessage.value = '回答已保存'
+
+    completedMessage.value = ''
     submitStatus.value = 'GENERATING_NEXT_ROUND'
-    void triggerPreGeneration()
+    const outcome = await triggerPreGeneration()
+
+    switch (outcome.type) {
+      case 'ACTIVATED':
+        completedMessage.value = ''
+        submitStatus.value = 'IDLE'
+        break
+      case 'COMPLETED':
+        completedMessage.value = '本轮已完成，没有新的追问，可以查看需求结果或生成PRD。'
+        submitStatus.value = 'IDLE'
+        break
+      case 'FAILED':
+        completedMessage.value = ''
+        errorMessage.value = `回答已保存，但下一轮生成失败：${outcome.message}`
+        submitStatus.value = 'IDLE'
+        break
+    }
   } catch (error) {
     stopAnalysisTimer()
+    completedMessage.value = ''
     errorMessage.value = readableError(error)
     submitStatus.value = 'IDLE'
   }
 }
 
 async function retryFailedGeneration() {
-  roundStore.markGenerationFailed(roundStore.generatingRoundNo ?? 0)
-  await triggerPreGeneration()
+  if (!state.value) {
+    errorMessage.value = '项目状态丢失，请刷新页面后重试'
+    return
+  }
+  // Clear the error and any stale generation state before retrying.
+  roundStore.generationError = null
+  if (roundStore.generatingRoundNo !== null) {
+    roundStore.markGenerationFailed(roundStore.generatingRoundNo)
+    roundStore.generationError = null
+  }
+
+  completedMessage.value = ''
+  errorMessage.value = ''
+  submitStatus.value = 'GENERATING_NEXT_ROUND'
+  showInfo('正在重新生成下一轮…')
+
+  const outcome = await triggerPreGeneration()
+
+  switch (outcome.type) {
+    case 'ACTIVATED':
+      completedMessage.value = ''
+      submitStatus.value = 'IDLE'
+      break
+    case 'COMPLETED':
+      completedMessage.value = '本轮已完成，没有新的追问，可以查看需求结果或生成PRD。'
+      submitStatus.value = 'IDLE'
+      break
+    case 'FAILED':
+      completedMessage.value = ''
+      errorMessage.value = `下一轮生成失败：${outcome.message}`
+      submitStatus.value = 'IDLE'
+      break
+  }
 }
 
 function openOriginalEditor() {
@@ -459,7 +662,9 @@ async function repersistFutureRoundQuestions() {
     }
   }
   if (future.length > 0) {
-    await appDatabase.clarification_question.bulkPut(future)
+    await appDatabase.clarification_question.bulkPut(
+      toPlainData(future),
+    )
   }
 }
 function notifyAnalysisStateSaved() {
@@ -566,6 +771,7 @@ function goToModelSettings() {
         :round-no="roundStore.currentRoundNo"
         :progress-message="analysisProgressMessage"
         :timed-out="analysisTimedOut"
+        :generation-retry="hasGenerationError"
         @submit="submit"
         @cancel="cancelAnalysis"
       />

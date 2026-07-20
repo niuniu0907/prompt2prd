@@ -1,6 +1,15 @@
 <script setup lang="ts">
-defineProps<{ label: string; count: number; collapsed: boolean }>()
-defineEmits<{ toggle: [] }>()
+defineProps<{
+  label: string
+  count: number
+  collapsed: boolean
+  selectableCount?: number
+  selectedCount?: number
+}>()
+defineEmits<{
+  toggle: []
+  'toggle-group-select': []
+}>()
 </script>
 <template>
   <section class="requirement-group" :class="{ 'requirement-group--collapsed': collapsed }">
@@ -10,6 +19,22 @@ defineEmits<{ toggle: [] }>()
       :aria-expanded="!collapsed"
       @click="$emit('toggle')"
     >
+      <label
+        v-if="(selectableCount ?? 0) > 0"
+        class="requirement-group__check"
+        :class="{
+          'requirement-group__check--partial': (selectedCount ?? 0) > 0 && (selectedCount ?? 0) < (selectableCount ?? 0),
+          'requirement-group__check--all': (selectedCount ?? 0) === (selectableCount ?? 0),
+        }"
+        @click.stop
+      >
+        <input
+          type="checkbox"
+          :checked="(selectedCount ?? 0) === (selectableCount ?? 0)"
+          :indeterminate.prop="(selectedCount ?? 0) > 0 && (selectedCount ?? 0) < (selectableCount ?? 0)"
+          @change="$emit('toggle-group-select')"
+        />
+      </label>
       <svg
         class="requirement-group__chevron"
         :class="{ 'requirement-group__chevron--open': !collapsed }"
@@ -49,6 +74,25 @@ defineEmits<{ toggle: [] }>()
 }
 .requirement-group__header:hover {
   background: var(--color-surface-muted);
+}
+.requirement-group__check {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 20px;
+  height: 20px;
+  cursor: pointer;
+}
+.requirement-group__check input[type="checkbox"] {
+  width: 15px;
+  height: 15px;
+  margin: 0;
+  cursor: pointer;
+  accent-color: var(--color-accent);
+}
+.requirement-group__check--partial input[type="checkbox"] {
+  accent-color: var(--color-accent);
 }
 .requirement-group__chevron {
   width: 16px;

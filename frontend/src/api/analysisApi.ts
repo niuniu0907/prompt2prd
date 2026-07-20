@@ -39,6 +39,8 @@ export interface GenerateRoundResponseBody {
   requestId: string
 }
 
+export type GenerateRoundResult = GenerateRoundResponseBody
+
 export interface AnalysisCallbacks {
   onEvent?: (event: KnownStreamEvent) => void
   onWarning?: (message: string) => void
@@ -163,25 +165,13 @@ export function createAnalysisClient(fetcher: FetchLike = fetch) {
           throw new StaleAnalysisError()
         }
 
-        if (!result.success) {
-          throw new RoundGenerationError(
-            result.errorMessage ?? 'Round generation failed',
-            result.errorCode ?? 'GENERATION_FAILED',
-            true,
-          )
-        }
-
+        // Return the result as-is — caller handles success:true/false and empty questions.
         return result
       } catch (error) {
         if (error instanceof StaleAnalysisError) throw error
-        if (error instanceof RoundGenerationError) throw error
         const elapsed = Math.round(performance.now() - startTime)
         console.warn(`[analysisApi] generateRound failed roundNo=${body.targetRoundNo} latencyMs=${elapsed}`, error)
-        throw new RoundGenerationError(
-          error instanceof Error ? error.message : 'Round generation failed',
-          'GENERATION_FAILED',
-          true,
-        )
+        throw error
       } finally {
         if (generationRequestId === id) generationController = undefined
       }
