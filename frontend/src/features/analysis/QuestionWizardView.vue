@@ -168,6 +168,13 @@ async function submit(drafts: QuestionAnswerDraft[]) {
     const persisted = await clarification.submitBatch(projectId.value, drafts)
     const localState = mergePersistedAnswers(state.value, persisted)
     state.value = localState
+
+    // Sync the round store so the UI reflects the updated question statuses
+    // (ANSWERED / SKIPPED) even if the backend round or pre-generation fails.
+    if (persisted.questions.length > 0) {
+      roundStore.setCurrentRoundQuestions(roundStore.currentRoundNo, persisted.questions)
+    }
+
     completedMessage.value = '回答已保存'
 
     // 2. Send ONLY current batch answers to backend with SSE progress callbacks
@@ -285,10 +292,18 @@ async function triggerPreGeneration() {
 
       // Auto-activate the freshly generated round so the user sees it immediately
       await roundStore.activateNextRound(projectId.value)
+    } else if (result.success) {
+      // AI determined no more clarification is needed: activate an empty
+      // round so the UI transitions to the completion / generate-PRD state.
+      roundStore.completeGeneration(nextRoundNo, [], requestId)
+      await roundStore.persist(projectId.value)
+      await roundStore.activateNextRound(projectId.value)
+      showInfo('本轮回答已保存，关键信息已达到生成条件')
     }
   } catch (error) {
     roundStore.markGenerationFailed(nextRoundNo,
       error instanceof Error ? error.message : 'Generation failed')
+    showError(error instanceof Error ? error.message : '下一轮问题生成失败，可在当前页面重试')
     console.warn('Background round pre-generation failed for round', nextRoundNo, error)
   } finally {
     if (submitStatus.value === 'GENERATING_NEXT_ROUND') submitStatus.value = 'IDLE'
@@ -387,7 +402,15 @@ async function retrySavedAnswers() {
 }
 
 async function retryFailedGeneration() {
-  roundStore.markGenerationFailed(roundStore.generatingRoundNo ?? 0)
+  // Clear the error and any stale generation state before retrying.
+  // When generatingRoundNo is null, markGenerationFailed is a no-op,
+  // so we must clear generationError manually.
+  roundStore.generationError = null
+  if (roundStore.generatingRoundNo !== null) {
+    roundStore.markGenerationFailed(roundStore.generatingRoundNo)
+    // markGenerationFailed sets generationError again; clear it once more
+    roundStore.generationError = null
+  }
   await triggerPreGeneration()
 }
 
