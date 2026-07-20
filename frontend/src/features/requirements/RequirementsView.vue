@@ -37,6 +37,11 @@ const collapsedGroups = ref(new Set<string>())
 
 const savingItems = ref(new Set<string>())
 
+// ── Batch selection state ──────────────────────────────────────────
+const selectedIds = ref(new Set<string>())
+const batchConfirming = ref(false)
+const batchError = ref('')
+
 const formalRequirements = computed(() => state.value?.requirements.filter(isFormalRequirement) ?? [])
 
 const statusFilterMap: Record<StatusFilterValue, string[]> = {
@@ -94,6 +99,30 @@ const drawerVersions = computed(() => {
     return reqs.some(r => r.id === drawerRequirement.value!.id)
   })
 })
+
+// ── Batch selection computed ────────────────────────────────────────
+const confirmableStatuses = new Set(['INFERRED', 'PENDING', 'UNANALYZED', 'CONFLICTED'])
+
+const selectableInView = computed(() =>
+  filteredRequirements.value.filter(
+    r => !r.locked && confirmableStatuses.has(r.status),
+  ),
+)
+
+const selectedCount = computed(() => selectedIds.value.size)
+
+const allSelectedInView = computed(() => {
+  const selectable = selectableInView.value
+  return selectable.length > 0 && selectable.every(r => selectedIds.value.has(r.id))
+})
+
+function groupSelectableCount(items: RequirementItem[]): number {
+  return items.filter(r => !r.locked && confirmableStatuses.has(r.status)).length
+}
+
+function groupSelectedCount(items: RequirementItem[]): number {
+  return items.filter(r => selectedIds.value.has(r.id)).length
+}
 
 const nextStep = computed(() => {
   if (formalRequirements.value.length === 0) {
@@ -341,6 +370,115 @@ function toggleGroup(label: string) {
   collapsedGroups.value = next
 }
 
+// ── Batch actions ──────────────────────────────────────────────────
+
+function toggleSelect(id: string) {
+  const next = new Set(selectedIds.value)
+  if (next.has(id)) next.delete(id)
+  else next.add(id)
+  selectedIds.value = next
+  batchError.value = ''
+}
+
+function toggleGroupSelect(items: RequirementItem[]) {
+  const selectable = items.filter(r => !r.locked && confirmableStatuses.has(r.status))
+  const allSelected = selectable.every(r => selectedIds.value.has(r.id))
+  const next = new Set(selectedIds.value)
+  for (const r of selectable) {
+    if (allSelected) next.delete(r.id)
+    else next.add(r.id)
+  }
+  selectedIds.value = next
+  batchError.value = ''
+}
+
+function toggleSelectAll() {
+  if (allSelectedInView.value) {
+    // Deselect all in view
+    const next = new Set(selectedIds.value)
+    for (const r of selectableInView.value) next.delete(r.id)
+    selectedIds.value = next
+  } else {
+    // Select all selectable in view
+    const next = new Set(selectedIds.value)
+    for (const r of selectableInView.value) next.add(r.id)
+    selectedIds.value = next
+  }
+  batchError.value = ''
+}
+
+function clearSelection() {
+  selectedIds.value = new Set()
+  batchError.value = ''
+}
+
+async function batchConfirm() {
+  if (!state.value || batchConfirming.value) return
+  const ids = [...selectedIds.value]
+  if (ids.length === 0) return
+
+  const items = ids
+    .map(id => state.value!.requirements.find(r => r.id === id))
+    .filter((r): r is RequirementItem => r !== undefined && confirmableStatuses.has(r.status))
+
+  if (items.length === 0) {
+    clearSelection()
+    return
+  }
+
+  batchConfirming.value = true
+  batchError.value = ''
+  errorMessage.value = ''
+
+  // Optimistic update: mark all selected as CONFIRMED
+  const prevState = state.value
+  state.value = {
+    ...state.value,
+    requirements: state.value.requirements.map(r =>
+      ids.includes(r.id) ? { ...r, status: 'CONFIRMED' as const } : r,
+    ),
+  }
+
+  let succeeded = 0
+  let failed = 0
+
+  for (const item of items) {
+    try {
+      if (item.type === 'ASSUMPTION') {
+        await requirementInteractionRepository.decideAssumption(item.id, true)
+      } else {
+        await requirementInteractionRepository.confirmRequirement(item.id)
+      }
+      succeeded++
+    } catch {
+      failed++
+      // Rollback this specific item
+      state.value = {
+        ...state.value!,
+        requirements: state.value!.requirements.map(r =>
+          r.id === item.id ? prevState.requirements.find(pr => pr.id === item.id) ?? r : r,
+        ),
+      }
+    }
+  }
+
+  batchConfirming.value = false
+  clearSelection()
+
+  if (failed === 0) {
+    showSuccess(`已确认 ${succeeded} 项需求`)
+  } else {
+    showError(`已确认 ${succeeded}/${items.length} 项，${failed} 项失败`)
+  }
+}
+
+async function confirmAllInView() {
+  const ids = selectableInView.value.map(r => r.id)
+  if (ids.length === 0) return
+  selectedIds.value = new Set(ids)
+  await batchConfirm()
+}
+
 function goToNextStep() {
   void router.push({ name: nextStep.value.routeName, params: { projectId: projectId.value } })
 }
@@ -362,6 +500,15 @@ function readable(error: unknown) {
         </div>
         <div class="heading__right">
           <p>共{{ formalRequirements.length }}项</p>
+          <button
+            v-if="selectableInView.length > 0"
+            type="button"
+            class="button-confirm-all"
+            :disabled="batchConfirming"
+            @click="confirmAllInView"
+          >
+            {{ batchConfirming ? '确认中…' : '全部确认' }}
+          </button>
           <button
             v-if="nextStep.routeName"
             type="button"
@@ -411,7 +558,10 @@ function readable(error: unknown) {
           :label="groupLabel"
           :count="items.length"
           :collapsed="collapsedGroups.has(groupLabel)"
+          :selectable-count="groupSelectableCount(items)"
+          :selected-count="groupSelectedCount(items)"
           @toggle="toggleGroup(groupLabel)"
+          @toggle-group-select="toggleGroupSelect(items)"
         >
           <TransitionGroup name="req-item" tag="div">
             <RequirementListItem
@@ -419,8 +569,10 @@ function readable(error: unknown) {
               :key="item.id"
               :requirement="item"
               :saving="savingItems.has(item.id)"
+              :selected="selectedIds.has(item.id)"
               @view="openDrawer"
               @confirm="confirmItem"
+              @toggle-select="toggleSelect"
             />
           </TransitionGroup>
         </RequirementGroup>
@@ -446,6 +598,39 @@ function readable(error: unknown) {
       />
     </template>
     <div v-else class="status">没有找到项目需求状态。</div>
+
+    <!-- Batch action bar -->
+    <Transition name="batch-bar">
+      <aside
+        v-if="selectedCount > 0"
+        class="batch-bar"
+        role="toolbar"
+        aria-label="批量操作"
+      >
+        <span class="batch-bar__info">
+          已选 <strong>{{ selectedCount }}</strong> 项
+          <template v-if="selectableInView.length > selectedCount">
+            ·
+            <button type="button" class="batch-bar__link" @click="toggleSelectAll">
+              全选 {{ selectableInView.length }} 项
+            </button>
+          </template>
+        </span>
+        <div class="batch-bar__actions">
+          <button type="button" class="batch-bar__clear" @click="clearSelection">
+            取消选择
+          </button>
+          <button
+            type="button"
+            class="button-primary batch-bar__confirm"
+            :disabled="batchConfirming"
+            @click="batchConfirm"
+          >
+            {{ batchConfirming ? '确认中…' : `确认已选 (${selectedCount})` }}
+          </button>
+        </div>
+      </aside>
+    </Transition>
   </main>
 </template>
 
@@ -608,5 +793,100 @@ function readable(error: unknown) {
 }
 .req-item-leave-active {
   position: absolute;
+}
+
+/* Batch action bar */
+.batch-bar {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  z-index: 30;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 12px 24px;
+  background: var(--color-surface);
+  border-top: 1px solid var(--color-border);
+  box-shadow: 0 -4px 16px rgba(38, 43, 37, 0.10);
+}
+.batch-bar__info {
+  font-size: 13px;
+  color: var(--color-text-primary);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.batch-bar__info strong {
+  font-weight: 700;
+}
+.batch-bar__link {
+  padding: 0;
+  border: 0;
+  color: var(--color-accent);
+  background: transparent;
+  font-size: 12px;
+  cursor: pointer;
+  text-decoration: underline;
+}
+.batch-bar__actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.batch-bar__clear {
+  min-height: 36px;
+  padding: 0 14px;
+  font-size: 12px;
+  color: var(--color-text-secondary);
+  background: transparent;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+}
+.batch-bar__clear:hover {
+  color: var(--color-text-primary);
+  background: var(--color-surface-muted);
+}
+.batch-bar__confirm {
+  min-height: 36px;
+  padding: 0 16px;
+  font-size: 12px;
+  border-radius: var(--radius-sm);
+}
+
+/* Batch bar transition */
+.batch-bar-enter-active,
+.batch-bar-leave-active {
+  transition: transform var(--motion-slow) var(--ease-standard),
+              opacity var(--motion-slow) var(--ease-standard);
+}
+.batch-bar-enter-from,
+.batch-bar-leave-to {
+  transform: translateY(100%);
+  opacity: 0;
+}
+
+/* Confirm-all button in header */
+.button-confirm-all {
+  min-height: 32px;
+  padding: 0 14px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--color-accent);
+  background: var(--color-accent-soft);
+  border: 1px solid var(--color-accent);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: background var(--motion-fast) var(--ease-standard);
+}
+.button-confirm-all:hover {
+  background: var(--color-accent);
+  color: #fff;
+}
+.button-confirm-all:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
 }
 </style>

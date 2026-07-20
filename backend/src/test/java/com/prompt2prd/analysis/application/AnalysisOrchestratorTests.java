@@ -16,7 +16,6 @@ import com.prompt2prd.model.application.ModelGatewayException;
 import com.prompt2prd.stream.StreamEvent;
 import org.junit.jupiter.api.Test;
 import reactor.core.publisher.Mono;
-import reactor.test.StepVerifier;
 
 import java.net.URI;
 import java.time.Duration;
@@ -50,25 +49,29 @@ class AnalysisOrchestratorTests {
     }
 
     @Test
-    void emitsHeartbeatWithinFiveSecondsWhileModelIsPending() {
+    void emitsEventsInStrictlySerialOrderWithoutConcurrentSources() {
+        // Verify that removing Flux.merge(heartbeat, completed) eliminates the
+        // race condition that could produce out-of-order event IDs.
         RequirementState initial = state(List.of());
+        RequirementItem item = requirement(initial.project().id());
+        RequirementState completed = state(List.of(item));
+        RequirementAnalyzer.AnalysisResult result = new RequirementAnalyzer.AnalysisResult(
+                completed, List.of(item), List.of(), List.of(), List.of("缺少角色"), "分析工作台");
         AnalysisOrchestrator orchestrator = new AnalysisOrchestrator(
-                command -> Mono.delay(Duration.ofSeconds(12))
-                        .map(ignored -> new RequirementAnalyzer.AnalysisResult(
-                                initial, List.of(), List.of(), List.of(), List.of(), "分析工作台")));
+                command -> Mono.delay(Duration.ofSeconds(3))
+                        .map(ignored -> result));
 
-        StepVerifier.withVirtualTime(() -> orchestrator.analyze(execution(initial)))
-                .expectNextCount(2)
-                .thenAwait(Duration.ofSeconds(5))
-                .assertNext(event -> assertThat(event.data())
-                        .containsEntry("progress", 20)
-                        .containsEntry("message", "AI 正在分析，已等待 5 秒"))
-                .thenAwait(Duration.ofSeconds(5))
-                .assertNext(event -> assertThat(event.data())
-                        .containsEntry("progress", 25)
-                        .containsEntry("message", "AI 正在分析，已等待 10 秒"))
-                .thenCancel()
-                .verify();
+        List<StreamEvent> events = orchestrator.analyze(execution(initial)).collectList().block();
+
+        assertThat(events).isNotNull();
+        // With heartbeat removed, event IDs must be strictly sequential:
+        // started=1, progress=2, then result events 3,4,5.
+        assertThat(events).extracting(StreamEvent::eventId)
+                .containsExactly(1L, 2L, 3L, 4L, 5L);
+        assertThat(events).extracting(event -> event.type().wireName())
+                .containsExactly(
+                        "analysis_started", "analysis_progress", "requirement_patch",
+                        "completeness_changed", "generation_completed");
     }
 
     @Test

@@ -10,7 +10,8 @@ const props = withDefaults(defineProps<{
   roundNo?: number
   progressMessage?: string
   timedOut?: boolean
-}>(), { submitStatus: 'IDLE', roundNo: 1, progressMessage: '', timedOut: false })
+  generationRetry?: boolean
+}>(), { submitStatus: 'IDLE', roundNo: 1, progressMessage: '', timedOut: false, generationRetry: false })
 const emit = defineEmits<{
   submit: [answers: QuestionAnswerDraft[]]
   cancel: []
@@ -29,8 +30,9 @@ const isIdle = computed(() => props.submitStatus === 'IDLE')
 const isSaving = computed(() => props.submitStatus === 'SAVING')
 const isAnalyzing = computed(() => props.submitStatus === 'ANALYZING')
 const isGenerating = computed(() => props.submitStatus === 'GENERATING_NEXT_ROUND')
-const canSubmit = computed(() => allAnswered.value && isIdle.value)
-const canSkip = computed(() => isIdle.value)
+const isRetry = computed(() => props.generationRetry && isIdle.value)
+const canSubmit = computed(() => isRetry.value || (allAnswered.value && isIdle.value))
+const canSkip = computed(() => isIdle.value && !isRetry.value)
 
 function submit(skipAll = false) {
   if (!isIdle.value) return
@@ -58,6 +60,7 @@ function adoptSuggestion() {
 }
 
 const submitButtonLabel = computed(() => {
+  if (isRetry.value) return '重新生成下一轮'
   if (isSaving.value) return '保存中…'
   if (isAnalyzing.value) return 'AI整理中…'
   if (isGenerating.value) return '正在生成下一轮…'
@@ -80,7 +83,7 @@ const submitButtonLabel = computed(() => {
       :question="question"
       :index="index"
       :model-value="drafts[question.id]!"
-      :disabled="!isIdle"
+      :disabled="!isIdle || isRetry"
       @update:model-value="setDraft(question.id, $event)"
     />
     <footer>

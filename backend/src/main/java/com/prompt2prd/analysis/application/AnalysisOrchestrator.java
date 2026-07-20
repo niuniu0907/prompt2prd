@@ -11,15 +11,12 @@ import org.springframework.beans.factory.annotation.Autowired;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 
-import java.time.Duration;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 
 @Service
 public class AnalysisOrchestrator {
-
-    private static final Duration HEARTBEAT_INTERVAL = Duration.ofSeconds(5);
 
     private final AnalysisEngine analysisEngine;
     private final AnalysisContextBuilder contextBuilder;
@@ -34,6 +31,14 @@ public class AnalysisOrchestrator {
         this.contextBuilder = Objects.requireNonNull(contextBuilder, "contextBuilder");
     }
 
+    /**
+     * Produces a strictly serial SSE event stream.
+     * <p>
+     * Event IDs are assigned by a single {@link StreamEventSequence} in a
+     * single-threaded chain — no concurrent Flux sources call
+     * {@code sequence.next()}, so the frontend never receives out-of-order
+     * event IDs.
+     */
     public Flux<StreamEvent> analyze(AnalysisExecution execution) {
         Objects.requireNonNull(execution, "execution");
         return Flux.defer(() -> {
@@ -45,11 +50,6 @@ public class AnalysisOrchestrator {
                     execution.modelContext(), execution.currentState(), context, execution.currentInput());
             Mono<RequirementAnalyzer.AnalysisResult> result = analysisEngine.analyze(command).cache();
 
-            Flux<StreamEvent> heartbeat = Flux.interval(HEARTBEAT_INTERVAL)
-                    .takeUntilOther(result)
-                    .map(ignored -> sequence.next(StreamEventType.ANALYSIS_PROGRESS,
-                            Map.of("progress", heartbeatProgress(ignored),
-                                    "message", heartbeatMessage(ignored))));
             Flux<StreamEvent> completed = result.flatMapMany(value -> resultEvents(
                     sequence, execution.currentState(), value));
 
@@ -59,22 +59,13 @@ public class AnalysisOrchestrator {
                                             Map.of("phase", "analysis")),
                                     sequence.next(StreamEventType.ANALYSIS_PROGRESS,
                                             Map.of("progress", 10, "message", "正在提取需求"))),
-                            Flux.merge(heartbeat, completed))
+                            completed)
                     .onErrorResume(failure -> Flux.just(sequence.next(
                             StreamEventType.GENERATION_FAILED,
                             Map.of("errorCode", errorCode(failure),
                                     "retryable", retryable(failure)))))
                     .doOnCancel(execution.modelContext().cancellation()::cancel);
         });
-    }
-
-    private int heartbeatProgress(long heartbeatIndex) {
-        return Math.min(90, 20 + Math.toIntExact(Math.min(heartbeatIndex, 14)) * 5);
-    }
-
-    private String heartbeatMessage(long heartbeatIndex) {
-        long elapsedSeconds = (heartbeatIndex + 1) * HEARTBEAT_INTERVAL.toSeconds();
-        return "AI 正在分析，已等待 " + elapsedSeconds + " 秒";
     }
 
     private Flux<StreamEvent> resultEvents(

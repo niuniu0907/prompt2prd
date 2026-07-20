@@ -7,11 +7,13 @@ const props = defineProps<{
   requirement: RequirementItem
   saving?: boolean
   saved?: boolean
+  selected?: boolean
 }>()
 
 defineEmits<{
   view: [requirement: RequirementItem]
   confirm: [requirement: RequirementItem]
+  'toggle-select': [requirementId: string]
 }>()
 
 const typeLabels: Record<string, string> = {
@@ -64,11 +66,24 @@ const needsAttention = (r: RequirementItem) =>
 <template>
   <article
     class="requirement-list-item"
+    :class="{ 'requirement-list-item--selected': selected }"
     role="button"
     tabindex="0"
     @click="$emit('view', requirement)"
     @keydown.enter="$emit('view', requirement)"
   >
+    <label
+      v-if="canConfirm()"
+      class="requirement-list-item__check"
+      @click.stop
+    >
+      <input
+        type="checkbox"
+        :checked="selected"
+        :disabled="saving"
+        @change="$emit('toggle-select', requirement.id)"
+      />
+    </label>
     <div class="requirement-list-item__main">
       <div class="requirement-list-item__meta">
         <span class="requirement-list-item__type">{{ typeLabels[requirement.type] ?? requirement.type }}</span>
@@ -111,9 +126,32 @@ const needsAttention = (r: RequirementItem) =>
   background: var(--color-surface-muted);
   transform: translateX(2px);
 }
+.requirement-list-item--selected {
+  background: var(--color-accent-soft);
+  box-shadow: inset 3px 0 0 var(--color-accent);
+}
+.requirement-list-item--selected:hover {
+  background: var(--color-accent-soft);
+}
 .requirement-list-item:focus-visible {
   outline: 3px solid rgba(36, 157, 165, 0.25);
   outline-offset: -2px;
+}
+.requirement-list-item__check {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 20px;
+  height: 20px;
+  cursor: pointer;
+}
+.requirement-list-item__check input[type="checkbox"] {
+  width: 15px;
+  height: 15px;
+  margin: 0;
+  cursor: pointer;
+  accent-color: var(--color-accent);
 }
 .requirement-list-item__saving-indicator {
   display: inline-flex;

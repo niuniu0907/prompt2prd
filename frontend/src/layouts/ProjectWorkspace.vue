@@ -46,7 +46,6 @@ const errorMessage = ref('')
 
 const currentModule = ref<ProjectModule>('overview')
 
-const rightPanelCollapsed = ref(true)
 const PROJECT_NAV_WIDTH_KEY = 'prompt2prd:layout:projectNavWidth'
 const projectNavWidth = ref(readStoredWidth(PROJECT_NAV_WIDTH_KEY, 240, 168, 360))
 const resizingProjectNav = ref(false)
@@ -90,9 +89,6 @@ const generateHint = computed(() => {
   }
   return '关键信息已达到生成条件，可以生成PRD。你也可以继续补充细节。'
 })
-const panelAttentionCount = computed(() =>
-  pendingRequirements.value.length + pendingQuestions.value.length + openConflicts.value.length)
-const panelHasContent = computed(() => panelAttentionCount.value > 0)
 
 function resolveModuleFromRoute(): ProjectModule {
   const name = String(route.name ?? '')
@@ -103,9 +99,7 @@ function resolveModuleFromRoute(): ProjectModule {
 }
 
 function syncFromRoute() {
-  const mod = resolveModuleFromRoute()
-  currentModule.value = mod
-  rightPanelCollapsed.value = true
+  currentModule.value = resolveModuleFromRoute()
 }
 
 watch(() => route.name, syncFromRoute)
@@ -189,10 +183,6 @@ function navigateTo(module: ProjectModule) {
   })
 }
 
-function toggleRightPanel() {
-  rightPanelCollapsed.value = !rightPanelCollapsed.value
-}
-
 function handleGeneratePrd() {
   if (!canGeneratePrd.value) return
   void router.push({
@@ -266,54 +256,6 @@ function goHome() {
             </Transition>
           </RouterView>
         </section>
-
-        <aside
-          v-if="panelHasContent || !rightPanelCollapsed"
-          :class="[
-            'workspace__panel',
-            { 'workspace__panel--collapsed': rightPanelCollapsed },
-          ]"
-          data-testid="workspace-right-panel"
-          :aria-expanded="!rightPanelCollapsed"
-        >
-          <div class="workspace__panel-inner">
-            <button
-              class="workspace__panel-toggle"
-              type="button"
-              :aria-label="rightPanelCollapsed ? '展开辅助面板' : '收起辅助面板'"
-              data-testid="panel-toggle"
-              @click="toggleRightPanel"
-            >
-              <svg viewBox="0 0 24 24" aria-hidden="true" class="workspace__panel-toggle-icon">
-                <path
-                  v-if="rightPanelCollapsed"
-                  d="M15 18l-6-6 6-6"
-                />
-                <path
-                  v-else
-                  d="M9 18l6-6-6-6"
-                />
-              </svg>
-              <span v-if="rightPanelCollapsed && panelAttentionCount" class="workspace__panel-dot">
-                {{ panelAttentionCount }}
-              </span>
-            </button>
-
-            <div v-if="!rightPanelCollapsed" class="workspace__panel-content">
-              <slot name="panel">
-                <header class="workspace__panel-header">
-                  <span>辅助面板</span>
-                  <h2>待处理事项</h2>
-                </header>
-                <div class="workspace__panel-list">
-                  <p v-if="pendingRequirements.length">待确认需求：{{ pendingRequirements.length }} 条</p>
-                  <p v-if="pendingQuestions.length">待回答问题：{{ pendingQuestions.length }} 个</p>
-                  <p v-if="openConflicts.length">开放冲突：{{ openConflicts.length }} 个</p>
-                </div>
-              </slot>
-            </div>
-          </div>
-        </aside>
       </div>
     </div>
   </AppShell>
@@ -427,112 +369,4 @@ function goHome() {
   transform: translateY(-4px);
 }
 
-.workspace__panel {
-  position: absolute;
-  z-index: 5;
-  top: 0;
-  right: 0;
-  width: 320px;
-  height: 100%;
-  border-left: 1px solid var(--color-border);
-  background: var(--color-surface);
-  box-shadow: var(--shadow-card);
-  transition: width var(--motion-base) var(--ease-standard), opacity var(--motion-base) var(--ease-standard);
-}
-
-.workspace__panel--collapsed {
-  width: 0;
-  border-left: 0;
-  background: transparent;
-  box-shadow: none;
-}
-
-.workspace__panel-inner {
-  position: relative;
-  display: flex;
-  flex-direction: column;
-  height: 100%;
-}
-
-.workspace__panel-toggle {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 44px;
-  min-height: 44px;
-  padding: 0;
-  color: var(--color-text-secondary);
-  background: var(--color-surface);
-  cursor: pointer;
-  border: 1px solid var(--color-border);
-  border-right: 0;
-  border-radius: 10px 0 0 10px;
-  position: absolute;
-  top: 16px;
-  left: -44px;
-  box-shadow: var(--shadow-card);
-}
-
-.workspace__panel-toggle:hover {
-  color: var(--color-text-primary);
-  background: var(--color-surface-muted);
-}
-
-.workspace__panel-toggle-icon {
-  width: 18px;
-  height: 18px;
-  fill: none;
-  stroke: currentColor;
-  stroke-linecap: round;
-  stroke-linejoin: round;
-  stroke-width: 2;
-}
-
-.workspace__panel-dot {
-  position: absolute;
-  top: -6px;
-  right: 4px;
-  min-width: 18px;
-  height: 18px;
-  padding: 0 5px;
-  border-radius: 999px;
-  color: #873f3f;
-  background: #fff8f8;
-  border: 1px solid #e2bcbc;
-  font-size: 10px;
-  font-weight: 750;
-  line-height: 16px;
-}
-
-.workspace__panel-content {
-  padding: 18px;
-  overflow-y: auto;
-  flex: 1;
-}
-
-.workspace__panel-header span {
-  color: var(--color-accent);
-  font-size: 10px;
-  font-weight: 750;
-}
-
-.workspace__panel-header h2 {
-  margin: 4px 0 12px;
-  font-size: 16px;
-}
-
-.workspace__panel-list {
-  display: grid;
-  gap: 8px;
-}
-
-.workspace__panel-list p {
-  margin: 0;
-  padding: 10px 12px;
-  border: 1px solid var(--color-border);
-  border-radius: 8px;
-  color: var(--color-text-secondary);
-  font-size: 12px;
-  background: var(--color-background);
-}
 </style>

@@ -2,6 +2,7 @@ import { computed, ref } from 'vue'
 import { defineStore } from 'pinia'
 import type { ClarificationQuestion, ClarificationRound, ClarificationRoundStatus } from '@/features/requirements/types'
 import { appDatabase, type AppDatabase } from '@/db/appDatabase'
+import { toPlainData } from '@/db/toPlainData'
 
 interface GenerationRequest {
   roundNo: number
@@ -170,16 +171,16 @@ export const useAnalysisRoundStore = defineStore('analysisRound', () => {
   // --- Persistence ---
 
   async function persist(projectId: string, database: AppDatabase = appDatabase) {
-    const state: RoundPersistenceState = {
+    const plainState = toPlainData<RoundPersistenceState>({
       currentRoundNo: currentRoundNo.value,
       readyNextRoundNo: readyNextRoundNo.value,
       coveredAreas: [...coveredAreas.value],
-      pendingAreas: pendingAreas.value,
+      pendingAreas: [...pendingAreas.value],
       contextVersion: contextVersion.value,
-    }
+    })
     await database.app_setting.put({
       key: roundStateKey(projectId),
-      value: state,
+      value: plainState,
       updatedAt: new Date().toISOString(),
     })
   }
@@ -326,7 +327,9 @@ function roundStateKey(projectId: string): `roundState:${string}` {
 /**
  * Deduplicates questions by semanticKey, targetField, and normalized text,
  * then limits to at most `limit` questions. Already-answered or skipped
- * questions are preserved (counted toward the limit but never removed).
+ * questions are prioritised (most-recently-updated first), but the total
+ * never exceeds `limit` — the database retains all historical answers while
+ * the UI only shows a capped set per round.
  */
 function deduplicateAndLimitQuestions(
   questions: ClarificationQuestion[],
@@ -337,20 +340,27 @@ function deduplicateAndLimitQuestions(
   const answered = questions.filter(q => q.status === 'ANSWERED' || q.status === 'SKIPPED')
   const pending = questions.filter(q => q.status !== 'ANSWERED' && q.status !== 'SKIPPED')
 
+  // Sort answered by updatedAt descending so the most recent answers are kept
+  const sortedAnswered = [...answered].sort(
+    (a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime(),
+  )
+
   // Sort pending by priority descending
-  const sorted = [...pending].sort((a, b) => (b.priority ?? 0) - (a.priority ?? 0))
+  const sortedPending = [...pending].sort((a, b) => (b.priority ?? 0) - (a.priority ?? 0))
 
   const seenKeys = new Set<string>()
   const deduped: ClarificationQuestion[] = []
 
-  // Already-answered questions always stay (they carry user data)
-  for (const q of answered) {
+  // Already-answered questions come first, but are capped at the limit
+  for (const q of sortedAnswered) {
+    if (deduped.length >= limit) break
+    if (isDuplicate(q, seenKeys)) continue
     deduped.push(q)
     markSeen(q, seenKeys)
   }
 
   // Fill remaining slots with highest-priority deduped unanswered questions
-  for (const q of sorted) {
+  for (const q of sortedPending) {
     if (deduped.length >= limit) break
     if (isDuplicate(q, seenKeys)) continue
     deduped.push(q)

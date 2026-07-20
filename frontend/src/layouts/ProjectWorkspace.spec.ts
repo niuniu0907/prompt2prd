@@ -99,69 +99,6 @@ function emptyStateStore(): AnalysisStateStore {
   }
 }
 
-function pendingStateStore(): AnalysisStateStore {
-  return {
-    load: vi.fn(async (): Promise<AnalysisState> => ({
-      project,
-      requirements: [
-        {
-          id: '20000000-0000-4000-8000-000000000001',
-          projectId: project.id,
-          type: 'FEATURE',
-          title: '在线支付',
-          content: '支持订单在线支付',
-          status: 'PENDING',
-          sourceType: 'AI_RECOMMENDATION',
-          sourceId: null,
-          locked: false,
-          metadata: {},
-          createdAt: '2026-07-17T08:00:00.000Z',
-          updatedAt: '2026-07-17T08:00:00.000Z',
-        },
-      ],
-      questions: [
-        {
-          id: '30000000-0000-4000-8000-000000000001',
-          projectId: project.id,
-          batchId: '30000000-0000-4000-8000-000000000002',
-          roundNo: 1, coverageCategories: [] as string[],
-          text: '是否需要支付？',
-          reason: '影响订单闭环',
-          dimension: 'BUSINESS_RULES',
-          targetField: 'payment',
-          semanticKey: 'payment',
-          inputType: 'CONFIRMATION',
-          options: [],
-          priority: 5,
-          status: 'PENDING',
-          createdAt: '2026-07-17T08:00:00.000Z',
-          updatedAt: '2026-07-17T08:00:00.000Z',
-        },
-      ],
-      answers: [],
-      conflicts: [
-        {
-          id: '40000000-0000-4000-8000-000000000001',
-          projectId: project.id,
-          leftRequirementId: null,
-          rightRequirementId: null,
-          leftContent: '只支持线下支付',
-          rightContent: '支持在线支付',
-          impact: '支付链路冲突',
-          core: false,
-          status: 'OPEN',
-          resolution: null,
-          createdAt: '2026-07-17T08:00:00.000Z',
-          updatedAt: '2026-07-17T08:00:00.000Z',
-          resolvedAt: null,
-        },
-      ],
-      completeness: { total: 45, dimensions: [], pendingCount: 2, hasCoreConflict: false },
-    })),
-    saveFinal: vi.fn(),
-  }
-}
-
 function roundCompletedStateStore(): AnalysisStateStore {
   return {
     load: vi.fn(async (): Promise<AnalysisState> => ({
@@ -350,78 +287,6 @@ describe('ProjectWorkspace', () => {
     expect(router.currentRoute.value.params.projectId).toBe(project.id)
   })
 
-  it('shows a collapsed right panel only when there are pending items', async () => {
-    const repository = createRepository()
-    const { wrapper } = await mountWorkspace(repository, `/projects/${project.id}/overview`, pendingStateStore())
-
-    const panel = wrapper.get('[data-testid="workspace-right-panel"]')
-    expect(panel.attributes('aria-expanded')).toBe('false')
-
-    await wrapper.get('[data-testid="panel-toggle"]').trigger('click')
-    await flushPromises()
-
-    expect(panel.attributes('aria-expanded')).toBe('true')
-    expect(wrapper.text()).toContain('待确认需求：1 条')
-  })
-
-  it('toggles the right panel back open after collapsing', async () => {
-    const repository = createRepository()
-    const { wrapper } = await mountWorkspace(repository, `/projects/${project.id}/overview`, pendingStateStore())
-
-    const panel = wrapper.get('[data-testid="workspace-right-panel"]')
-    const toggle = wrapper.get('[data-testid="panel-toggle"]')
-
-    await toggle.trigger('click')
-    await flushPromises()
-    expect(panel.attributes('aria-expanded')).toBe('true')
-
-    await toggle.trigger('click')
-    await flushPromises()
-    expect(panel.attributes('aria-expanded')).toBe('false')
-  })
-
-  it('keeps the right panel collapsed by default on flowchart page', async () => {
-    const repository = createRepository()
-    const { wrapper } = await mountWorkspace(
-      repository,
-      `/projects/${project.id}/flowchart`,
-      pendingStateStore(),
-    )
-
-    const panel = wrapper.get('[data-testid="workspace-right-panel"]')
-    expect(panel.attributes('aria-expanded')).toBe('false')
-    expect(panel.classes()).toContain('workspace__panel--collapsed')
-  })
-
-  it('keeps the right panel collapsed by default on PRD page', async () => {
-    const repository = createRepository()
-    const { wrapper } = await mountWorkspace(
-      repository,
-      `/projects/${project.id}/prd`,
-      pendingStateStore(),
-    )
-
-    const panel = wrapper.get('[data-testid="workspace-right-panel"]')
-    expect(panel.attributes('aria-expanded')).toBe('false')
-    expect(panel.classes()).toContain('workspace__panel--collapsed')
-  })
-
-  it('does not render the right panel when there is no auxiliary content', async () => {
-    const repository = createRepository()
-
-    for (const mod of PROJECT_MODULES) {
-      if (mod === 'flowchart' || mod === 'prd') continue
-
-      const { wrapper } = await mountWorkspace(
-        repository,
-        `/projects/${project.id}/${mod}`,
-        emptyStateStore(),
-      )
-
-      expect(wrapper.find('[data-testid="workspace-right-panel"]').exists()).toBe(false)
-    }
-  })
-
   it('does not emit generatePrd when prerequisites are missing', async () => {
     const repository = createRepository()
     const { wrapper } = await mountWorkspace(repository)
@@ -472,12 +337,4 @@ describe('ProjectWorkspace', () => {
     expect(wrapper.text()).not.toContain('总体进度')
   })
 
-  it('shows actionable content in the right panel', async () => {
-    const repository = createRepository()
-    const { wrapper } = await mountWorkspace(repository, `/projects/${project.id}/overview`, pendingStateStore())
-    await wrapper.get('[data-testid="panel-toggle"]').trigger('click')
-
-    expect(wrapper.text()).toContain('待处理事项')
-    expect(wrapper.text()).not.toContain('分析进度、假设、冲突和变更将在此展示')
-  })
 })

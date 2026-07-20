@@ -6,7 +6,10 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { AnalysisState, AnalysisStateStore } from '@/db/repositories/analysisStateRepository'
 import type { SubmitBatchResult } from '@/db/repositories/clarificationRepository'
 import type { AnalysisAnswersRequestBody } from '@/api/analysisApi'
+import type { ClarificationQuestion } from '@/features/requirements/types'
 import { createAppRouter } from '@/router'
+import { useAnalysisRoundStore } from '@/stores/analysisRoundStore'
+import { appDatabase } from '@/db/appDatabase'
 import QuestionWizardView from './QuestionWizardView.vue'
 
 let pinia: ReturnType<typeof createPinia>
@@ -20,6 +23,30 @@ beforeEach(() => {
   // no push/isReady needed — the component only needs useRouter() injection
 })
 
+/**
+ * Stubs appDatabase IndexedDB methods so triggerPreGeneration's success
+ * path doesn't hit fake-indexeddb's structured clone inside tests.
+ * Returns a cleanup function that must be called at the end of the test.
+ */
+function stubAppDatabase() {
+  // Dexie's transaction method has complex overloads — bypass TS checks in test.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const db = appDatabase as any
+  const txSpy = vi.spyOn(db, 'transaction').mockImplementation(
+    async (...args: unknown[]) => {
+      const fn = args[args.length - 1] as () => Promise<void>
+      await fn()
+    },
+  )
+  const roundSpy = vi.spyOn(db.clarification_round, 'put').mockResolvedValue(undefined)
+  const questionSpy = vi.spyOn(db.clarification_question, 'bulkAdd').mockResolvedValue(undefined)
+  return () => {
+    txSpy.mockRestore()
+    roundSpy.mockRestore()
+    questionSpy.mockRestore()
+  }
+}
+
 describe('QuestionWizardView', () => {
   it('persists answers before requesting and commits only the completed next state', async () => {
     const initial = state()
@@ -31,7 +58,19 @@ describe('QuestionWizardView', () => {
         questions: completed.questions,
       })),
     }
-    const client = { submitAnswers: vi.fn(async (_body: AnalysisAnswersRequestBody) => completed), generateRound: vi.fn(async () => ({ success: false, questions: [], coverageCategories: [], requestId: '' })), cancel: vi.fn() }
+    const client = { submitAnswers: vi.fn(async (_body: AnalysisAnswersRequestBody) => completed), generateRound: vi.fn(async () => ({ success: true, questions: [], coverageCategories: [], requestId: '', roundNo: 2 })), cancel: vi.fn() }
+
+    // Stub round store persist/activateNextRound to avoid fake-indexeddb clone issues
+    const roundStore = useAnalysisRoundStore()
+    const persistSpy = vi.spyOn(roundStore, 'persist').mockResolvedValue(undefined)
+    const activateSpy = vi.spyOn(roundStore, 'activateNextRound').mockImplementation(async () => {
+      roundStore.currentRoundNo = 2
+      roundStore.readyNextRoundNo = null
+      roundStore.contextVersion++
+      roundStore.generationError = null
+      return true
+    })
+
     const wrapper = mount(QuestionWizardView, {
       props: {
         projectId: initial.project.id,
@@ -55,7 +94,10 @@ describe('QuestionWizardView', () => {
     const body = client.submitAnswers.mock.calls[0]![0]
     expect(body.answers[0]).toMatchObject({ question: '退款期限是多少？', answer: '采用常见默认规则' })
     expect(stateStore.saveFinal).toHaveBeenCalledTimes(1)
-    expect(wrapper.text()).toContain('正在生成下一轮问题')
+    expect(wrapper.text()).toContain('本轮已完成，没有新的追问')
+
+    persistSpy.mockRestore()
+    activateSpy.mockRestore()
   })
 
   it('submits answers and updates state after sending to backend', async () => {
@@ -78,7 +120,13 @@ describe('QuestionWizardView', () => {
         questions: initial.questions.map(question => ({ ...question, status: 'ANSWERED' as const })),
       })),
     }
-    const client = { submitAnswers: vi.fn(async (_body: AnalysisAnswersRequestBody) => completed), generateRound: vi.fn(async () => ({ success: false, questions: [], coverageCategories: [], requestId: '' })), cancel: vi.fn() }
+    const client = { submitAnswers: vi.fn(async (_body: AnalysisAnswersRequestBody) => completed), generateRound: vi.fn(async () => ({ success: true, questions: [], coverageCategories: [], requestId: '', roundNo: 2 })), cancel: vi.fn() }
+
+    // roundStore obtained via static import at top
+    const roundStore = useAnalysisRoundStore()
+    const persistSpy = vi.spyOn(roundStore, 'persist').mockResolvedValue(undefined)
+    const activateSpy = vi.spyOn(roundStore, 'activateNextRound').mockResolvedValue(true)
+
     const wrapper = mount(QuestionWizardView, {
       props: {
         projectId: initial.project.id,
@@ -102,6 +150,9 @@ describe('QuestionWizardView', () => {
     const body = client.submitAnswers.mock.calls[0]![0]
     expect(body.answers[0]).toMatchObject({ question: '退款期限是多少？', answer: '采用常见默认规则' })
     expect(stateStore.saveFinal).toHaveBeenCalledWith(initial.project.id, completed)
+
+    persistSpy.mockRestore()
+    activateSpy.mockRestore()
   })
 
   it('shows previously answered round questions on load', async () => {
@@ -290,7 +341,13 @@ describe('QuestionWizardView', () => {
       ],
     }
     const stateStore: AnalysisStateStore = { load: vi.fn(async () => initial), saveFinal: vi.fn(async () => nextRound) }
-    const client = { submitAnswers: vi.fn(async (_body: AnalysisAnswersRequestBody) => nextRound), generateRound: vi.fn(async () => ({ success: false, questions: [], coverageCategories: [], requestId: '' })), cancel: vi.fn() }
+    const client = { submitAnswers: vi.fn(async (_body: AnalysisAnswersRequestBody) => nextRound), generateRound: vi.fn(async () => ({ success: true, questions: [], coverageCategories: [], requestId: '', roundNo: 2 })), cancel: vi.fn() }
+
+    // roundStore obtained via static import at top
+    const roundStore = useAnalysisRoundStore()
+    const persistSpy = vi.spyOn(roundStore, 'persist').mockResolvedValue(undefined)
+    const activateSpy = vi.spyOn(roundStore, 'activateNextRound').mockResolvedValue(true)
+
     const wrapper = mount(QuestionWizardView, {
       props: {
         projectId: initial.project.id,
@@ -320,7 +377,10 @@ describe('QuestionWizardView', () => {
     expect(body.originalInput).toContain('创建测试需求工作台')
     expect(body.supplementalInput).toBe('我还想补充后台审核和角色权限')
     expect(stateStore.saveFinal).toHaveBeenCalledTimes(1)
-    expect(wrapper.text()).toContain('正在生成下一轮问题')
+    expect(wrapper.text()).toContain('本轮已完成，没有新的追问')
+
+    persistSpy.mockRestore()
+    activateSpy.mockRestore()
   })
 
   it('blocks answer submission before the backend returns HTTP 400 when model settings are incomplete', async () => {
@@ -402,9 +462,15 @@ describe('QuestionWizardView', () => {
       submitAnswers: vi.fn()
         .mockRejectedValueOnce(new Error('请求参数无效，请检查模型设置和当前项目数据后重试。'))
         .mockResolvedValueOnce(nextRound),
-      generateRound: vi.fn(async () => ({ success: false, questions: [], coverageCategories: [], requestId: '' })),
+      generateRound: vi.fn(async () => ({ success: true, questions: [], coverageCategories: [], requestId: '', roundNo: 2 })),
       cancel: vi.fn(),
     }
+
+    // roundStore obtained via static import at top
+    const roundStore = useAnalysisRoundStore()
+    const persistSpy = vi.spyOn(roundStore, 'persist').mockResolvedValue(undefined)
+    const activateSpy = vi.spyOn(roundStore, 'activateNextRound').mockResolvedValue(true)
+
     const wrapper = mount(QuestionWizardView, {
       props: {
         projectId: initial.project.id,
@@ -431,7 +497,578 @@ describe('QuestionWizardView', () => {
     await vi.waitFor(() => expect(wrapper.text()).not.toContain('正在恢复问题'), { timeout: 5000 })
 
     expect(client.submitAnswers).toHaveBeenCalledTimes(2)
-    expect(wrapper.text()).toContain('正在生成下一轮问题')
+    expect(wrapper.text()).toContain('本轮已完成，没有新的追问')
+
+    persistSpy.mockRestore()
+    activateSpy.mockRestore()
+  })
+
+  it('shows analysis-failure message when submitBatch succeeds but submitAnswers fails', async () => {
+    const initial = state()
+    const stateStore: AnalysisStateStore = { load: vi.fn(async () => initial), saveFinal: vi.fn() }
+    const clarification = {
+      submitBatch: vi.fn(async (_projectId, drafts): Promise<SubmitBatchResult> => ({
+        answers: [{
+          id: '90000000-0000-4000-8000-000000000001',
+          projectId: initial.project.id,
+          questionId: drafts[0].questionId,
+          selectedOptionIds: drafts[0].selectedOptionIds,
+          customAnswer: drafts[0].customAnswer,
+          note: drafts[0].note,
+          skipped: drafts[0].skipped,
+          createdAt: '2026-07-17T12:01:00.000Z',
+          updatedAt: '2026-07-17T12:01:00.000Z',
+        }],
+        questions: initial.questions.map(q => ({ ...q, status: 'ANSWERED' as const })),
+      })),
+    }
+    const client = {
+      submitAnswers: vi.fn().mockRejectedValue(new Error('模型服务超时')),
+      generateRound: vi.fn(),
+      cancel: vi.fn(),
+    }
+    const wrapper = mount(QuestionWizardView, {
+      props: {
+        projectId: initial.project.id,
+        stateStore,
+        clarification,
+        client,
+        modelSettings: validModelSettings(),
+      },
+      global: { plugins: [pinia, router] },
+    })
+    await flushPromises()
+    await vi.waitFor(() => expect(wrapper.text()).not.toContain('正在恢复问题'), { timeout: 5000 })
+
+    await wrapper.get('[data-testid="option-refund-window-:0"]').setValue(true)
+    await wrapper.get('[data-testid="submit-batch"]').trigger('click')
+    await flushPromises()
+    await vi.waitFor(() => expect(wrapper.text()).not.toContain('正在恢复问题'), { timeout: 5000 })
+
+    // Local save succeeded
+    expect(clarification.submitBatch).toHaveBeenCalledTimes(1)
+    // AI analysis failed — shows partial-success message
+    expect(client.submitAnswers).toHaveBeenCalledTimes(1)
+    expect(wrapper.text()).toContain('回答已保存，但AI整理失败')
+    expect(wrapper.text()).toContain('模型服务超时')
+    // Should offer retry
+    expect(wrapper.text()).toContain('重新提交已保存回答')
+  })
+
+  it('shows generation failure when submitAnswers succeeds but generateRound returns success:false', async () => {
+    const initial = state()
+    const completed = sufficientCompletedRoundState()
+    const stateStore: AnalysisStateStore = { load: vi.fn(async () => initial), saveFinal: vi.fn(async () => completed) }
+    const clarification = {
+      submitBatch: vi.fn(async (_projectId, drafts): Promise<SubmitBatchResult> => ({
+        answers: [{
+          id: '90000000-0000-4000-8000-000000000001',
+          projectId: initial.project.id,
+          questionId: drafts[0].questionId,
+          selectedOptionIds: drafts[0].selectedOptionIds,
+          customAnswer: drafts[0].customAnswer,
+          note: drafts[0].note,
+          skipped: drafts[0].skipped,
+          createdAt: '2026-07-17T12:01:00.000Z',
+          updatedAt: '2026-07-17T12:01:00.000Z',
+        }],
+        questions: initial.questions.map(q => ({ ...q, status: 'ANSWERED' as const })),
+      })),
+    }
+
+    // generateRound returns success:false with a controlled error
+    const generateResult = {
+      success: false as const,
+      errorCode: 'GENERATION_FAILED',
+      errorMessage: '模型返回格式不符合当前任务要求',
+      questions: [] as unknown[],
+      coverageCategories: [] as string[],
+      requestId: crypto.randomUUID(),
+      roundNo: 2,
+    }
+    // Stub the round store persist/activate to avoid fake-indexeddb clone issues
+    // roundStore obtained via static import at top
+    const roundStore = useAnalysisRoundStore()
+    const persistSpy = vi.spyOn(roundStore, 'persist').mockResolvedValue(undefined)
+    const activateSpy = vi.spyOn(roundStore, 'activateNextRound').mockResolvedValue(true)
+
+    const client = {
+      submitAnswers: vi.fn(async () => completed),
+      generateRound: vi.fn(async () => generateResult),
+      cancel: vi.fn(),
+    }
+    const wrapper = mount(QuestionWizardView, {
+      props: {
+        projectId: initial.project.id,
+        stateStore,
+        clarification,
+        client,
+        modelSettings: validModelSettings(),
+      },
+      global: { plugins: [pinia, router] },
+    })
+    await flushPromises()
+    await vi.waitFor(() => expect(wrapper.text()).not.toContain('正在恢复问题'), { timeout: 5000 })
+
+    await wrapper.get('[data-testid="option-refund-window-:0"]').setValue(true)
+    await wrapper.get('[data-testid="submit-batch"]').trigger('click')
+    await flushPromises()
+    await vi.waitFor(() => expect(wrapper.text()).not.toContain('正在恢复问题'), { timeout: 5000 })
+
+    // All save steps succeeded
+    expect(clarification.submitBatch).toHaveBeenCalledTimes(1)
+    expect(client.submitAnswers).toHaveBeenCalledTimes(1)
+    expect(stateStore.saveFinal).toHaveBeenCalledTimes(1)
+    // Generation failed — must show error, not just "回答已保存"
+    expect(wrapper.text()).toContain('回答已保存，但下一轮生成失败')
+    expect(wrapper.text()).toContain('模型返回格式不符合当前任务要求')
+    // Should show retry button for generation
+    expect(wrapper.text()).toContain('重新生成')
+    // Must NOT show misleading "回答已保存" success message
+    expect(wrapper.text()).not.toContain('回答已保存，AI正在整理')
+
+    persistSpy.mockRestore()
+    activateSpy.mockRestore()
+  })
+
+  it('shows completion state when generateRound returns success:true with empty questions', async () => {
+    const initial = state()
+    const completed = sufficientCompletedRoundState()
+    const stateStore: AnalysisStateStore = { load: vi.fn(async () => initial), saveFinal: vi.fn(async () => completed) }
+    const clarification = {
+      submitBatch: vi.fn(async (_projectId, drafts): Promise<SubmitBatchResult> => ({
+        answers: [{
+          id: '90000000-0000-4000-8000-000000000001',
+          projectId: initial.project.id,
+          questionId: drafts[0].questionId,
+          selectedOptionIds: drafts[0].selectedOptionIds,
+          customAnswer: drafts[0].customAnswer,
+          note: drafts[0].note,
+          skipped: drafts[0].skipped,
+          createdAt: '2026-07-17T12:01:00.000Z',
+          updatedAt: '2026-07-17T12:01:00.000Z',
+        }],
+        questions: initial.questions.map(q => ({ ...q, status: 'ANSWERED' as const })),
+      })),
+    }
+
+    // Stub round store IndexedDB methods to avoid fake-indexeddb clone issues
+    const roundStore = useAnalysisRoundStore()
+    const persistSpy = vi.spyOn(roundStore, 'persist').mockResolvedValue(undefined)
+    const activateSpy = vi.spyOn(roundStore, 'activateNextRound').mockImplementation(async () => {
+      // Simulate round advance: set the empty questions for round 2 so
+      // currentRoundQuestions becomes empty and the completion view shows.
+      roundStore.allQuestions.set(2, [])
+      roundStore.currentRoundNo = 2
+      roundStore.readyNextRoundNo = null
+      roundStore.contextVersion++
+      roundStore.generationError = null
+      return true
+    })
+
+    const client = {
+      submitAnswers: vi.fn(async () => completed),
+      generateRound: vi.fn(async () => ({
+        success: true,
+        questions: [],
+        coverageCategories: [],
+        requestId: crypto.randomUUID(),
+        roundNo: 2,
+      })),
+      cancel: vi.fn(),
+    }
+    const wrapper = mount(QuestionWizardView, {
+      props: {
+        projectId: initial.project.id,
+        stateStore,
+        clarification,
+        client,
+        modelSettings: validModelSettings(),
+      },
+      global: { plugins: [pinia, router] },
+    })
+    await flushPromises()
+    await vi.waitFor(() => expect(wrapper.text()).not.toContain('正在恢复问题'), { timeout: 5000 })
+
+    await wrapper.get('[data-testid="option-refund-window-:0"]').setValue(true)
+    await wrapper.get('[data-testid="submit-batch"]').trigger('click')
+    await flushPromises()
+    await vi.waitFor(() => expect(wrapper.text()).not.toContain('正在恢复问题'), { timeout: 5000 })
+
+    // Should show completion, not stuck on repeatable submit
+    expect(wrapper.text()).toContain('本轮已完成，没有新的追问')
+    // Must NOT show the submit button as if user can keep submitting
+    expect(wrapper.text()).not.toContain('提交并继续')
+
+    persistSpy.mockRestore()
+    activateSpy.mockRestore()
+  })
+
+  it('advances currentRoundNo when generateRound succeeds with questions', async () => {
+    const initial = state()
+    const completed = sufficientCompletedRoundState()
+    const nextQuestion: ClarificationQuestion = {
+      id: '00000000-0000-4000-8000-000000000002',
+      projectId: initial.project.id,
+      batchId: '20000000-0000-4000-8000-000000000001',
+      roundNo: 2, coverageCategories: ['FEATURES'],
+      text: '是否需要通知提醒？',
+      reason: '影响验收范围',
+      dimension: 'FEATURES',
+      targetField: 'featureScopePriorities.notification',
+      semanticKey: 'notification',
+      inputType: 'SINGLE_SELECT' as const,
+      options: [
+        { id: '70000000-0000-4000-8000-000000000011', label: '需要', impact: '补充通知功能', recommended: true },
+      ],
+      priority: 4,
+      status: 'PENDING' as const,
+      createdAt: '2026-07-17T12:02:00.000Z',
+      updatedAt: '2026-07-17T12:02:00.000Z',
+    }
+    const stateStore: AnalysisStateStore = { load: vi.fn(async () => initial), saveFinal: vi.fn(async () => completed) }
+    const clarification = {
+      submitBatch: vi.fn(async (_projectId, drafts): Promise<SubmitBatchResult> => ({
+        answers: [{
+          id: '90000000-0000-4000-8000-000000000001',
+          projectId: initial.project.id,
+          questionId: drafts[0].questionId,
+          selectedOptionIds: drafts[0].selectedOptionIds,
+          customAnswer: drafts[0].customAnswer,
+          note: drafts[0].note,
+          skipped: drafts[0].skipped,
+          createdAt: '2026-07-17T12:01:00.000Z',
+          updatedAt: '2026-07-17T12:01:00.000Z',
+        }],
+        questions: initial.questions.map(q => ({ ...q, status: 'ANSWERED' as const })),
+      })),
+    }
+
+    // Stub round store IndexedDB methods and appDatabase transaction
+    const cleanupDb = stubAppDatabase()
+    // roundStore obtained via static import at top
+    const roundStore = useAnalysisRoundStore()
+    const persistSpy = vi.spyOn(roundStore, 'persist').mockResolvedValue(undefined)
+    const activateSpy = vi.spyOn(roundStore, 'activateNextRound').mockImplementation(async () => {
+      // Simulate what the real activateNextRound does: advance the round
+      roundStore.currentRoundNo = 2
+      roundStore.readyNextRoundNo = null
+      roundStore.contextVersion++
+      roundStore.generationError = null
+      return true
+    })
+
+    const client = {
+      submitAnswers: vi.fn(async () => completed),
+      generateRound: vi.fn(async () => ({
+        success: true,
+        questions: [nextQuestion],
+        coverageCategories: ['FEATURES'],
+        requestId: crypto.randomUUID(),
+        roundNo: 2,
+      })),
+      cancel: vi.fn(),
+    }
+    const wrapper = mount(QuestionWizardView, {
+      props: {
+        projectId: initial.project.id,
+        stateStore,
+        clarification,
+        client,
+        modelSettings: validModelSettings(),
+      },
+      global: { plugins: [pinia, router] },
+    })
+    await flushPromises()
+    await vi.waitFor(() => expect(wrapper.text()).not.toContain('正在恢复问题'), { timeout: 5000 })
+
+    expect(wrapper.text()).toContain('第 1 轮')
+
+    await wrapper.get('[data-testid="option-refund-window-:0"]').setValue(true)
+    await wrapper.get('[data-testid="submit-batch"]').trigger('click')
+    await flushPromises()
+    await vi.waitFor(() => expect(wrapper.text()).not.toContain('正在恢复问题'), { timeout: 5000 })
+
+    // Round should have advanced to 2
+    expect(wrapper.text()).toContain('第 2 轮')
+    expect(wrapper.text()).toContain('是否需要通知提醒？')
+
+    persistSpy.mockRestore()
+    activateSpy.mockRestore()
+  })
+
+  it('retries only generateRound when clicking regenerate — no re-submit of answers', async () => {
+    const initial = completedRoundState()
+    const stateStore: AnalysisStateStore = { load: vi.fn(async () => initial), saveFinal: vi.fn() }
+    const clarification = {
+      submitBatch: vi.fn(),
+    }
+
+    // Stub round store IndexedDB methods
+    // roundStore obtained via static import at top
+    const roundStore = useAnalysisRoundStore()
+    const persistSpy = vi.spyOn(roundStore, 'persist').mockResolvedValue(undefined)
+    const activateSpy = vi.spyOn(roundStore, 'activateNextRound').mockResolvedValue(true)
+
+    // Simulate: previous generation failed for round 2
+    roundStore.generatingRoundNo = 2
+    roundStore.markGenerationFailed(2, '首次生成失败')
+
+    const client = {
+      submitAnswers: vi.fn(),
+      generateRound: vi.fn().mockResolvedValue({
+        success: true,
+        questions: [],
+        coverageCategories: [],
+        requestId: crypto.randomUUID(),
+        roundNo: 2,
+      }),
+      cancel: vi.fn(),
+    }
+
+    const wrapper = mount(QuestionWizardView, {
+      props: {
+        projectId: initial.project.id,
+        stateStore,
+        clarification,
+        client,
+        modelSettings: validModelSettings(),
+      },
+      global: { plugins: [pinia, router] },
+    })
+    await flushPromises()
+    await vi.waitFor(() => expect(wrapper.text()).not.toContain('正在恢复问题'), { timeout: 5000 })
+
+    // Error banner is visible
+    expect(wrapper.text()).toContain('首次生成失败')
+
+    // Click the retry button in the error banner
+    const retryButton = wrapper.find('.wizard-view__error .button-primary')
+    expect(retryButton.exists()).toBe(true)
+    await retryButton.trigger('click')
+    await flushPromises()
+    await vi.waitFor(() => expect(wrapper.text()).not.toContain('正在恢复问题'), { timeout: 5000 })
+
+    // Must NOT have called submitBatch or submitAnswers
+    expect(clarification.submitBatch).not.toHaveBeenCalled()
+    expect(client.submitAnswers).not.toHaveBeenCalled()
+    // Must have called generateRound exactly once
+    expect(client.generateRound).toHaveBeenCalledTimes(1)
+    // Should show completion
+    expect(wrapper.text()).toContain('本轮已完成，没有新的追问')
+
+    persistSpy.mockRestore()
+    activateSpy.mockRestore()
+  })
+
+  // Test: Round 2 is already READY → skip generateRound, directly activateNextRound
+  it('skips generation when the next round is already READY and activates it directly', async () => {
+    const initial = completedRoundState()
+    const completed = sufficientCompletedRoundState()
+    const stateStore: AnalysisStateStore = { load: vi.fn(async () => initial), saveFinal: vi.fn(async () => completed) }
+    const clarification = {
+      submitBatch: vi.fn(async (_projectId, drafts): Promise<SubmitBatchResult> => ({
+        answers: [{
+          id: '90000000-0000-4000-8000-000000000001',
+          projectId: initial.project.id,
+          questionId: drafts[0].questionId,
+          selectedOptionIds: drafts[0].selectedOptionIds,
+          customAnswer: drafts[0].customAnswer,
+          note: drafts[0].note,
+          skipped: drafts[0].skipped,
+          createdAt: '2026-07-17T12:01:00.000Z',
+          updatedAt: '2026-07-17T12:01:00.000Z',
+        }],
+        questions: initial.questions.map(q => ({ ...q, status: 'ANSWERED' as const })),
+      })),
+    }
+
+    const round2Questions: ClarificationQuestion[] = [
+      {
+        id: '00000000-0000-4000-8000-000000000002',
+        projectId: initial.project.id,
+        batchId: '20000000-0000-4000-8000-000000000001',
+        roundNo: 2,
+        coverageCategories: ['FEATURES'],
+        text: '是否需要通知提醒？',
+        reason: '影响验收范围',
+        dimension: 'FEATURES',
+        targetField: 'featureScopePriorities.notification',
+        semanticKey: 'notification',
+        inputType: 'SINGLE_SELECT',
+        options: [
+          { id: '70000000-0000-4000-8000-000000000011', label: '需要', impact: '补充通知功能', recommended: true },
+        ],
+        priority: 4,
+        status: 'PENDING' as const,
+        createdAt: '2026-07-17T12:02:00.000Z',
+        updatedAt: '2026-07-17T12:02:00.000Z',
+      },
+    ]
+
+    // generateRound must NOT be called — the round is already READY
+    const client = {
+      submitAnswers: vi.fn(async () => completed),
+      generateRound: vi.fn(),
+      cancel: vi.fn(),
+    }
+
+    const roundStore = useAnalysisRoundStore()
+    // Mock recover so it doesn't reset state from empty IndexedDB
+    const recoverSpy = vi.spyOn(roundStore, 'recover').mockResolvedValue(undefined)
+    const persistSpy = vi.spyOn(roundStore, 'persist').mockResolvedValue(undefined)
+    const activateSpy = vi.spyOn(roundStore, 'activateNextRound').mockImplementation(async () => {
+      roundStore.currentRoundNo = 2
+      roundStore.readyNextRoundNo = null
+      roundStore.contextVersion++
+      roundStore.generationError = null
+      return true
+    })
+
+    // Mock bulkPut for repersistFutureRoundQuestions
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const bulkPutSpy = vi.spyOn((appDatabase as any).clarification_question, 'bulkPut').mockResolvedValue(undefined)
+
+    const wrapper = mount(QuestionWizardView, {
+      props: {
+        projectId: initial.project.id,
+        stateStore,
+        clarification,
+        client,
+        modelSettings: validModelSettings(),
+      },
+      global: { plugins: [pinia, router] },
+    })
+    await flushPromises()
+    await vi.waitFor(() => expect(wrapper.text()).not.toContain('正在恢复问题'), { timeout: 5000 })
+
+    // After mount, the store has round 1 with an ANSWERED question from
+    // the legacy fallback.  Simulate the scenario where round 2 was
+    // pre-generated (readyNextRoundNo = 2, questions already in store).
+    roundStore.readyNextRoundNo = 2
+    roundStore.setCurrentRoundQuestions(2, round2Questions)
+
+    // Submit the current round's answers
+    await wrapper.get('[data-testid="option-refund-window-:0"]').setValue(true)
+    await wrapper.get('[data-testid="submit-batch"]').trigger('click')
+    await flushPromises()
+    await vi.waitFor(() => expect(wrapper.text()).not.toContain('正在恢复问题'), { timeout: 5000 })
+
+    // generateRound must NOT have been called — round 2 was already READY
+    expect(client.generateRound).not.toHaveBeenCalled()
+    // activateNextRound must have been called
+    expect(activateSpy).toHaveBeenCalled()
+    // Round should have advanced to 2
+    expect(roundStore.currentRoundNo).toBe(2)
+
+    recoverSpy.mockRestore()
+    persistSpy.mockRestore()
+    activateSpy.mockRestore()
+    bulkPutSpy.mockRestore()
+  })
+
+  // Test: Page refresh auto-recovers and enters READY round
+  it('auto-recovers into a READY next round on page load', async () => {
+    const initial = completedRoundState()
+    const projectId = initial.project.id
+
+    // Pre-populate IndexedDB: round 1 complete, round 2 READY
+    const db = appDatabase as unknown as Record<string, unknown>
+    const settingsTable = (db as Record<string, { put: (r: unknown) => Promise<void> }>).app_setting
+    await settingsTable!.put({
+      key: `roundState:${projectId}`,
+      value: {
+        currentRoundNo: 1,
+        readyNextRoundNo: 2,
+        coveredAreas: [],
+        pendingAreas: [],
+        contextVersion: 1,
+      },
+      updatedAt: '2026-07-17T12:00:00.000Z',
+    })
+    const questionsTable = (db as Record<string, { put: (r: unknown) => Promise<void> }>).clarification_question
+    // Round 1: all ANSWERED
+    await questionsTable!.put({
+      id: '00000000-0000-4000-8000-000000000001',
+      projectId,
+      batchId: '20000000-0000-4000-8000-000000000000',
+      roundNo: 1,
+      coverageCategories: [],
+      text: '退款期限是多少？',
+      reason: '影响退款规则',
+      dimension: 'BUSINESS_RULES',
+      targetField: 'refund.window',
+      semanticKey: 'refund-window',
+      inputType: 'TEXT',
+      options: [],
+      priority: 4,
+      status: 'ANSWERED',
+      createdAt: '2026-07-17T12:00:00.000Z',
+      updatedAt: '2026-07-17T12:01:00.000Z',
+    })
+    // Round 2: READY (pre-generated)
+    await questionsTable!.put({
+      id: '00000000-0000-4000-8000-000000000002',
+      projectId,
+      batchId: '20000000-0000-4000-8000-000000000001',
+      roundNo: 2,
+      coverageCategories: ['FEATURES'],
+      text: '是否需要通知提醒？',
+      reason: '影响验收范围',
+      dimension: 'FEATURES',
+      targetField: 'featureScopePriorities.notification',
+      semanticKey: 'notification',
+      inputType: 'SINGLE_SELECT',
+      options: [{ id: '70000000-0000-4000-8000-000000000011', label: '需要', impact: '补充通知功能', recommended: true }],
+      priority: 4,
+      status: 'PENDING',
+      createdAt: '2026-07-17T12:02:00.000Z',
+      updatedAt: '2026-07-17T12:02:00.000Z',
+    })
+    // Round 2 record as READY
+    const roundsTable = (db as Record<string, { put: (r: unknown) => Promise<void> }>).clarification_round
+    await roundsTable!.put({
+      id: crypto.randomUUID(),
+      projectId,
+      roundNo: 2,
+      requestId: 'req-2',
+      contextVersion: '1',
+      questionIds: ['00000000-0000-4000-8000-000000000002'],
+      coverageCategories: ['FEATURES'],
+      status: 'READY',
+      createdAt: '2026-07-17T12:02:00.000Z',
+      generatedAt: '2026-07-17T12:02:00.000Z',
+    })
+
+    const stateStore: AnalysisStateStore = { load: vi.fn(async () => initial), saveFinal: vi.fn() }
+
+    const roundStore = useAnalysisRoundStore()
+    const activateSpy = vi.spyOn(roundStore, 'activateNextRound').mockImplementation(async () => {
+      roundStore.currentRoundNo = 2
+      roundStore.readyNextRoundNo = null
+      roundStore.contextVersion++
+      roundStore.generationError = null
+      return true
+    })
+
+    const wrapper = mount(QuestionWizardView, {
+      props: {
+        projectId,
+        stateStore,
+        clarification: { submitBatch: vi.fn() },
+        client: { submitAnswers: vi.fn(), generateRound: vi.fn(), cancel: vi.fn() },
+        modelSettings: validModelSettings(),
+      },
+      global: { plugins: [pinia, router] },
+    })
+    await flushPromises()
+    await vi.waitFor(() => expect(wrapper.text()).not.toContain('正在恢复问题'), { timeout: 5000 })
+
+    // Auto-recovery should have activated round 2
+    expect(activateSpy).toHaveBeenCalled()
+    expect(roundStore.currentRoundNo).toBe(2)
+
+    activateSpy.mockRestore()
   })
 })
 
